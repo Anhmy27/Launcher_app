@@ -1,0 +1,1 @@
+-- Empty migration (was seed_admin_user, now replaced with API registration)
