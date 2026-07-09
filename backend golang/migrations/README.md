@@ -45,7 +45,7 @@ migrate create -ext sql -dir migrations -seq migration_name
 - `000003_create_app_versions_table.up.sql` / `.down.sql`
 - `000004_create_user_apps_table.up.sql` / `.down.sql`
 - `000005_create_downloads_table.up.sql` / `.down.sql`
-- `000006_empty.up.sql` / `.down.sql`
+- `000006_empty.up.sql` / `.down.sql` (seed default admin user)
 - `000007_create_devices_tables.up.sql` / `.down.sql`
 - `000008_add_registry_name.up.sql` / `.down.sql`
 - `000009_remove_version_from_user_apps.up.sql` / `.down.sql`
