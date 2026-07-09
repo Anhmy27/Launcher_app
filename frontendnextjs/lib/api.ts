@@ -159,7 +159,14 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      throw new Error('Failed to upload version');
+      let message = 'Failed to upload version';
+      try {
+        const errJson = await response.json();
+        message = errJson?.error || message;
+      } catch {
+        // ignore
+      }
+      throw new Error(message);
     }
 
     return response.json();

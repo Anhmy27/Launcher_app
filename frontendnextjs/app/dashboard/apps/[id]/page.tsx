@@ -19,11 +19,17 @@ interface App {
 interface AppVersion {
   id: string;
   version_code: number;
+  version_name?: string;
   is_required: boolean;
   is_released: boolean;
   release_date: string;
   file_hash: string;
   manifest_url: string;
+  distribution_type?: "portable" | "installer" | "url";
+  launch_url?: string;
+  installer_kind?: string;
+  installer_silent_args?: string;
+  installer_launch_path?: string;
 }
 
 export default function AppDetailPage() {
@@ -39,6 +45,12 @@ export default function AppDetailPage() {
   const [isUploading, setIsUploading] = useState(false);
   const [isRequired, setIsRequired] = useState(false);
   const [entryPoint, setEntryPoint] = useState("");
+  const [distributionType, setDistributionType] = useState<
+    "portable" | "installer" | "url"
+  >("portable");
+  const [launchUrl, setLaunchUrl] = useState("");
+  const [installerSilentArgs, setInstallerSilentArgs] = useState("");
+  const [installerLaunchPath, setInstallerLaunchPath] = useState("");
 
   useEffect(() => {
     loadAppData();
@@ -61,12 +73,16 @@ export default function AppDetailPage() {
 
   const handleUploadVersion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (!uploadingFile) return;
+    if (distributionType !== "url" && !uploadingFile) return;
+    if (distributionType === "url" && !launchUrl.trim()) return;
 
     setIsUploading(true);
     try {
       const formData = new FormData();
-      formData.append("file", uploadingFile);
+      formData.append("distribution_type", distributionType);
+      if (distributionType !== "url" && uploadingFile) {
+        formData.append("file", uploadingFile);
+      }
       formData.append(
         "version_code",
         String(Math.max(0, ...versions.map((v) => v.version_code)) + 1),
@@ -79,11 +95,26 @@ export default function AppDetailPage() {
       if (entryPoint.trim()) {
         formData.append("entry_point", entryPoint.trim());
       }
+      if (distributionType === "url") {
+        formData.append("launch_url", launchUrl.trim());
+      }
+      if (distributionType === "installer") {
+        if (installerSilentArgs.trim()) {
+          formData.append("installer_silent_args", installerSilentArgs.trim());
+        }
+        if (installerLaunchPath.trim()) {
+          formData.append("installer_launch_path", installerLaunchPath.trim());
+        }
+      }
 
       await apiClient.uploadVersion(appId, formData);
       setUploadingFile(null);
       setIsRequired(false);
       setEntryPoint("");
+      setDistributionType("portable");
+      setLaunchUrl("");
+      setInstallerSilentArgs("");
+      setInstallerLaunchPath("");
       await loadAppData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload version");
@@ -176,13 +207,53 @@ export default function AppDetailPage() {
           <form onSubmit={handleUploadVersion} className="space-y-4">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Build File (.exe, .zip, etc.)
+                Distribution Type
+              </label>
+              <select
+                value={distributionType}
+                onChange={(e) =>
+                  setDistributionType(
+                    e.target.value as "portable" | "installer" | "url",
+                  )
+                }
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                disabled={isUploading}
+              >
+                <option value="portable">Portable (run directly)</option>
+                <option value="installer">Installer (MSI/Setup)</option>
+                <option value="url">URL (web app)</option>
+              </select>
+            </div>
+
+            {distributionType === "url" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Launch URL
+                </label>
+                <input
+                  type="url"
+                  value={launchUrl}
+                  onChange={(e) => setLaunchUrl(e.target.value)}
+                  placeholder="https://example.com"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  disabled={isUploading}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Launcher will open this URL (no file upload).
+                </p>
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Build File (.exe, .msi, .zip, etc.)
               </label>
               <input
                 type="file"
                 onChange={(e) => setUploadingFile(e.target.files?.[0] || null)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 disabled={isUploading}
+                style={{ display: distributionType === "url" ? "none" : "block" }}
               />
             </div>
             <div>
@@ -201,6 +272,40 @@ export default function AppDetailPage() {
                 Main executable inside the build. Auto-detected for .exe/.msi.
               </p>
             </div>
+
+            {distributionType === "installer" && (
+              <>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Installer Silent Args (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={installerSilentArgs}
+                    onChange={(e) => setInstallerSilentArgs(e.target.value)}
+                    placeholder='e.g., /qn /norestart (MSI) or /S (EXE)'
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Launch Path After Install (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={installerLaunchPath}
+                    onChange={(e) => setInstallerLaunchPath(e.target.value)}
+                    placeholder="e.g., C:\\Program Files\\MyApp\\MyApp.exe"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={isUploading}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Needed for managed launch; otherwise launcher can only run the installer file.
+                  </p>
+                </div>
+              </>
+            )}
             <div>
               <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
                 <input
@@ -218,7 +323,11 @@ export default function AppDetailPage() {
             </div>{" "}
             <button
               type="submit"
-              disabled={!uploadingFile || isUploading}
+              disabled={
+                isUploading ||
+                (distributionType !== "url" && !uploadingFile) ||
+                (distributionType === "url" && !launchUrl.trim())
+              }
               className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
             >
               {isUploading ? "Uploading..." : "Upload Version"}
@@ -254,6 +363,9 @@ export default function AppDetailPage() {
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                     Manifest
+                  </th>
+                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
+                    Type
                   </th>
                   <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
                     Hash
@@ -296,9 +408,22 @@ export default function AppDetailPage() {
                           View Manifest 📋
                         </a>
                       )}
+                      {!v.manifest_url && v.launch_url && (
+                        <a
+                          href={v.launch_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="text-blue-600 hover:underline text-sm"
+                        >
+                          Open URL ↗
+                        </a>
+                      )}
+                    </td>
+                    <td className="px-6 py-4 text-sm">
+                      {v.distribution_type || "portable"}
                     </td>
                     <td className="px-6 py-4 font-mono text-xs">
-                      {v.file_hash.substring(0, 16)}...
+                      {v.file_hash ? `${v.file_hash.substring(0, 16)}...` : "-"}
                     </td>
                     <td className="px-6 py-4 space-x-2">
                       {!v.is_released && (

@@ -67,6 +67,10 @@ type CreateVersionRequest struct {
 	Description string `form:"description"`
 	IsRequired  bool   `form:"is_required"`
 	EntryPoint  string `form:"entry_point"` // optional – auto-detected if empty
+	DistributionType     string `form:"distribution_type"` // portable|installer|url (default portable)
+	LaunchURL            string `form:"launch_url"`        // required for url
+	InstallerSilentArgs  string `form:"installer_silent_args"`
+	InstallerLaunchPath  string `form:"installer_launch_path"` // optional absolute path after install
 }
 
 type UpdateVersionRequest struct {
@@ -78,6 +82,7 @@ type UpdateVersionRequest struct {
 // Create - POST /api/apps/:id/versions (multipart/form-data with file)
 //
 // Accepts a single build file (exe, msi, …) **or** a ZIP archive.
+// Also supports URL-only releases (no file upload) when distribution_type=url.
 //
 //   - ZIP  → extracted; every file is uploaded individually.
 //   - Other → uploaded as a single-file version.
@@ -100,10 +105,52 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		return
 	}
 
-	// Handle file upload
+	// Normalize distribution type
+	distType := strings.ToLower(strings.TrimSpace(req.DistributionType))
+	if distType == "" {
+		distType = "portable"
+	}
+	if distType != "portable" && distType != "installer" && distType != "url" {
+		utils.Error(c, http.StatusBadRequest, "Invalid distribution_type (must be portable|installer|url)")
+		return
+	}
+
+	// URL-only release: no file upload, no manifest
+	if distType == "url" {
+		if strings.TrimSpace(req.LaunchURL) == "" {
+			utils.Error(c, http.StatusBadRequest, "launch_url is required for distribution_type=url")
+			return
+		}
+
+		appUUID, _ := uuid.Parse(appID)
+		version := models.AppVersion{
+			ID:               uuid.New(),
+			AppID:            appUUID,
+			VersionName:      req.VersionName,
+			VersionCode:      req.VersionCode,
+			Description:      req.Description,
+			FileSize:         0,
+			FileHash:         "",
+			ManifestURL:      "",
+			DistributionType: "url",
+			LaunchURL:        strings.TrimSpace(req.LaunchURL),
+			IsReleased:       false,
+			IsRequired:       req.IsRequired,
+		}
+
+		if err := database.DB.Create(&version).Error; err != nil {
+			utils.Error(c, http.StatusInternalServerError, "Failed to create version")
+			return
+		}
+
+		utils.Success(c, http.StatusCreated, version)
+		return
+	}
+
+	// Handle file upload (portable/installer)
 	file, err := c.FormFile("file")
 	if err != nil {
-		utils.Error(c, http.StatusBadRequest, "Build file is required")
+		utils.Error(c, http.StatusBadRequest, "Build file is required for portable/installer")
 		return
 	}
 
@@ -130,6 +177,7 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 
 	var manifestFiles []ManifestFile
 	var entryPoint string
+	installerKind := ""
 
 	if isZipFile(file.Filename) {
 		// ── ZIP: extract and upload every file ──────────────────────────
@@ -217,6 +265,18 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		totalSize += f.Size
 	}
 
+	// Determine installer kind (if installer)
+	if distType == "installer" {
+		lowerEntry := strings.ToLower(entryPoint)
+		if strings.HasSuffix(lowerEntry, ".msi") {
+			installerKind = "msi"
+		} else if strings.HasSuffix(lowerEntry, ".exe") {
+			installerKind = "exe"
+		} else {
+			installerKind = "unknown"
+		}
+	}
+
 	// Build manifest
 	manifest := Manifest{
 		Version:     1,
@@ -230,7 +290,18 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		CreatedAt:   time.Now().UTC().Format(time.RFC3339),
 	}
 
-	manifestJSON, err := json.MarshalIndent(manifest, "", "  ")
+	// Add optional metadata for installer/portable clients (backwards-compatible)
+	manifestJSONMap := map[string]interface{}{}
+	manifestBytes, _ := json.Marshal(manifest)
+	_ = json.Unmarshal(manifestBytes, &manifestJSONMap)
+	manifestJSONMap["distribution_type"] = distType
+	if distType == "installer" {
+		manifestJSONMap["installer_kind"] = installerKind
+		manifestJSONMap["installer_silent_args"] = req.InstallerSilentArgs
+		manifestJSONMap["installer_launch_path"] = req.InstallerLaunchPath
+	}
+
+	manifestJSON, err := json.MarshalIndent(manifestJSONMap, "", "  ")
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, "Failed to generate manifest")
 		return
@@ -258,6 +329,10 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		FileSize:    totalSize,
 		FileHash:    manifestHash,
 		ManifestURL: manifestURL,
+		DistributionType:    distType,
+		InstallerKind:       installerKind,
+		InstallerSilentArgs: req.InstallerSilentArgs,
+		InstallerLaunchPath: req.InstallerLaunchPath,
 		IsReleased:  false,
 		IsRequired:  req.IsRequired,
 	}

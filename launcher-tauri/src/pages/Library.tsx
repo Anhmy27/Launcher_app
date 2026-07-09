@@ -3,6 +3,7 @@ import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
+import { open as openExternal } from "@tauri-apps/plugin-shell";
 import "./Library.css";
 
 interface LibraryProps {
@@ -144,8 +145,25 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     appName: string,
     installDir: string,
     entryPoint: string,
+    latestVersion?: AppVersion,
   ) => {
     try {
+      if (latestVersion?.distribution_type === "url" && latestVersion.launch_url) {
+        await openExternal(latestVersion.launch_url);
+        setMessage(`Opening ${appName}...`);
+        return;
+      }
+
+      if (
+        latestVersion?.distribution_type === "installer" &&
+        latestVersion.installer_launch_path &&
+        latestVersion.installer_launch_path.trim()
+      ) {
+        await tauriCommands.launchApp(latestVersion.installer_launch_path.trim());
+        setMessage(`Launching ${appName}...`);
+        return;
+      }
+
       const normalizePath = (value: string) => value.replace(/\//g, "\\");
       const manifestPath = `${installDir}\\manifest.json`;
 
@@ -367,7 +385,21 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                 </div>
                 <div className="library-actions">
                   {/* Not installed, not in progress → Install button */}
-                  {!status?.isInstalled && !dl && latestVersion && (
+                  {latestVersion?.distribution_type === "url" && latestVersion && (
+                    <button
+                      className="install-btn"
+                      onClick={() =>
+                        handleLaunch(app?.name || "", "", "", latestVersion)
+                      }
+                    >
+                      ↗ Open
+                    </button>
+                  )}
+
+                  {!status?.isInstalled &&
+                    !dl &&
+                    latestVersion &&
+                    latestVersion.distribution_type !== "url" && (
                     <button
                       className="install-btn"
                       onClick={() => app && onStartDownload(app, latestVersion)}
@@ -377,16 +409,15 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                   )}
 
                   {/* Installed → Launch button */}
-                  {status?.isInstalled &&
-                    status.entryPoint &&
-                    status.installDir && (
+                  {status?.isInstalled && status.installDir && (
                       <button
                         className="launch-btn"
                         onClick={() =>
                           handleLaunch(
                             app?.name || "",
                             status.installDir!,
-                            status.entryPoint!,
+                            status.entryPoint || "",
+                            latestVersion,
                           )
                         }
                       >

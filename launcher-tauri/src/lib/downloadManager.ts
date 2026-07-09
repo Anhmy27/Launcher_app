@@ -1,6 +1,7 @@
 import apiClient from './api';
 import type { App, AppVersion } from './api';
 import { tauriCommands } from './tauri';
+import { Command, open as openExternal } from '@tauri-apps/plugin-shell';
 
 // ─── Manifest types (mirrors backend Manifest struct) ─────────────────────
 export interface ManifestFile {
@@ -68,6 +69,14 @@ class DownloadManager {
   async startDownload(app: App, version: AppVersion) {
     const key = `${app.id}-${version.id}`;
     let serverDownloadId: string | undefined;
+
+    // URL-only: nothing to download
+    if (version.distribution_type === 'url') {
+      if (version.launch_url) {
+        await openExternal(version.launch_url);
+      }
+      return;
+    }
 
     // Already in progress?
     if (this.downloads.has(key) && this.downloads.get(key)!.status === 'downloading') {
@@ -220,6 +229,25 @@ class DownloadManager {
 
       // 7. Save manifest locally
       await tauriCommands.writeTextFile(localManifestPath, JSON.stringify(manifest, null, 2));
+
+      // 7.1 If installer, run the installer after download completes
+      const distType = (manifest as any).distribution_type as string | undefined;
+      if (distType === 'installer') {
+        const installerKind = ((manifest as any).installer_kind as string | undefined) || '';
+        const silentArgs = ((manifest as any).installer_silent_args as string | undefined) || '';
+        const installerPath = `${installDir}\\${manifest.entry_point.replace(/\//g, '\\\\')}`;
+
+        const args = silentArgs.trim() ? silentArgs.trim().split(/\s+/) : [];
+        if (installerKind === 'msi') {
+          // msiexec /i <path> <args...>
+          const cmd = Command.create('msiexec', ['/i', installerPath, ...args]);
+          await cmd.execute();
+        } else {
+          // exe installer
+          const cmd = Command.create(installerPath, args);
+          await cmd.execute();
+        }
+      }
 
       // 8. Sync version to device on backend
       const deviceId = localStorage.getItem('deviceId');
