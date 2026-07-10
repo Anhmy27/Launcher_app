@@ -102,4 +102,33 @@ export const tauriCommands = {
   async deleteDirectory(path: string): Promise<void> {
     return invoke<void>('delete_directory', { path });
   },
+
+  /**
+   * Run an MSI/EXE installer and wait for exit code (Windows only).
+   */
+  async runInstaller(
+    installerKind: string,
+    installerPath: string,
+    silentArgs: string,
+  ): Promise<number> {
+    return invoke<number>('run_installer', {
+      installerKind,
+      installerPath,
+      silentArgs,
+    });
+  },
+
+  async runUninstaller(
+    installerKind: string,
+    productCode: string,
+    uninstallPath: string,
+    uninstallArgs: string,
+  ): Promise<number> {
+    return invoke<number>('run_uninstaller', {
+      installerKind,
+      productCode,
+      uninstallPath,
+      uninstallArgs,
+    });
+  },
 };

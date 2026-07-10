@@ -230,6 +230,9 @@ export interface AppVersion {
   installer_kind?: string;
   installer_silent_args?: string;
   installer_launch_path?: string;
+  installer_product_code?: string;
+  installer_uninstall_path?: string;
+  installer_uninstall_args?: string;
   is_released: boolean;
   is_required: boolean;
   release_date: string | null;

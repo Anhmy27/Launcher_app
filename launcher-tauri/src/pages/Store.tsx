@@ -1,6 +1,8 @@
 import { useState, useEffect } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion } from "../lib/api";
+import downloadManager from "../lib/downloadManager";
+import { distributionLabel, isUrlVersion } from "../lib/distribution";
 import "./Store.css";
 
 interface StoreProps {
@@ -40,7 +42,7 @@ export default function Store({ onNavigate }: StoreProps) {
     }
   };
 
-  const handleInstall = async (app: App) => {
+  const handleAddToLibrary = async (app: App) => {
     setInstalling(app.id);
     setMessage("");
     try {
@@ -49,7 +51,14 @@ export default function Store({ onNavigate }: StoreProps) {
         throw new Error("No version available");
       }
       await apiClient.installApp(app.id);
-      setMessage(`${app.name} added to your library!`);
+
+      if (isUrlVersion(latestVersion)) {
+        await downloadManager.openUrlApp(app, latestVersion);
+        setMessage(`${app.name} added — opening link...`);
+      } else {
+        setMessage(`${app.name} added to your library!`);
+      }
+
       setTimeout(() => onNavigate("library"), 1500);
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : "Failed to install");
@@ -58,7 +67,8 @@ export default function Store({ onNavigate }: StoreProps) {
     }
   };
 
-  const formatSize = (bytes: number) => {
+  const formatSize = (bytes: number, version?: AppVersion) => {
+    if (isUrlVersion(version)) return "Web link";
     if (bytes === 0) return "0 B";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
@@ -75,9 +85,9 @@ export default function Store({ onNavigate }: StoreProps) {
     );
   }
 
-  // Detail view
   if (selectedApp) {
     const latestVersion = versions[0];
+    const isUrl = isUrlVersion(latestVersion);
     return (
       <div className="store-detail">
         <button className="back-btn" onClick={() => setSelectedApp(null)}>
@@ -101,7 +111,11 @@ export default function Store({ onNavigate }: StoreProps) {
             {latestVersion && (
               <div className="detail-meta">
                 <span>Version: {latestVersion.version_name}</span>
-                <span>Size: {formatSize(latestVersion.file_size)}</span>
+                <span>Type: {distributionLabel(latestVersion)}</span>
+                <span>Size: {formatSize(latestVersion.file_size, latestVersion)}</span>
+                {isUrl && latestVersion.launch_url && (
+                  <span>URL: {latestVersion.launch_url}</span>
+                )}
               </div>
             )}
           </div>
@@ -112,10 +126,14 @@ export default function Store({ onNavigate }: StoreProps) {
         <div className="detail-actions">
           <button
             className="install-btn"
-            onClick={() => handleInstall(selectedApp)}
+            onClick={() => handleAddToLibrary(selectedApp)}
             disabled={installing === selectedApp.id}
           >
-            {installing === selectedApp.id ? "Adding..." : "+ Add to Library"}
+            {installing === selectedApp.id
+              ? "Adding..."
+              : isUrl
+                ? "+ Add & Open"
+                : "+ Add to Library"}
           </button>
         </div>
 
@@ -127,7 +145,7 @@ export default function Store({ onNavigate }: StoreProps) {
                 <div>
                   <strong>{v.version_name}</strong>
                   <span className="version-size">
-                    {formatSize(v.file_size)}
+                    {formatSize(v.file_size, v)} · {distributionLabel(v)}
                   </span>
                 </div>
                 <span className="version-date">
@@ -143,7 +161,6 @@ export default function Store({ onNavigate }: StoreProps) {
     );
   }
 
-  // Grid view
   return (
     <div className="store-page">
       <div className="store-header">

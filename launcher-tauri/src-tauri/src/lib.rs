@@ -209,6 +209,119 @@ fn write_text_file(path: String, content: String) -> Result<(), String> {
         .map_err(|e| format!("Failed to write file '{}': {}", path, e))
 }
 
+/// Parse a command-line argument string, respecting double quotes.
+fn parse_command_args(args: &str) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in args.chars() {
+        match ch {
+            '"' => in_quotes = !in_quotes,
+            ' ' | '\t' if !in_quotes => {
+                if !current.is_empty() {
+                    out.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+
+    if !current.is_empty() {
+        out.push(current);
+    }
+
+    out
+}
+
+/// Run an MSI or EXE installer and wait for it to finish. Returns the exit code.
+#[tauri::command]
+async fn run_installer(
+    installer_kind: String,
+    installer_path: String,
+    silent_args: String,
+) -> Result<i32, String> {
+    let args = parse_command_args(silent_args.trim());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let status = if installer_kind == "msi" {
+            let mut cmd = Command::new("msiexec");
+            cmd.arg("/i").arg(&installer_path);
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.status()
+        } else {
+            let mut cmd = Command::new(&installer_path);
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.status()
+        }
+        .map_err(|e| format!("Failed to run installer: {}", e))?;
+
+        Ok(status.code().unwrap_or(-1))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (installer_kind, installer_path, args);
+        Err("Installer execution is only supported on Windows".to_string())
+    }
+}
+
+/// Run MSI uninstall or EXE uninstaller and wait for exit code.
+#[tauri::command]
+async fn run_uninstaller(
+    installer_kind: String,
+    product_code: String,
+    uninstall_path: String,
+    uninstall_args: String,
+) -> Result<i32, String> {
+    let args = parse_command_args(uninstall_args.trim());
+
+    #[cfg(target_os = "windows")]
+    {
+        use std::process::Command;
+
+        let status = if installer_kind == "msi" {
+            let code = product_code.trim();
+            if code.is_empty() {
+                return Err("MSI product code is required for uninstall".to_string());
+            }
+            let mut cmd = Command::new("msiexec");
+            cmd.arg("/x").arg(code);
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.status()
+        } else {
+            let path = uninstall_path.trim();
+            if path.is_empty() {
+                return Err("Uninstall path is required for EXE uninstall".to_string());
+            }
+            let mut cmd = Command::new(path);
+            for arg in &args {
+                cmd.arg(arg);
+            }
+            cmd.status()
+        }
+        .map_err(|e| format!("Failed to run uninstaller: {}", e))?;
+
+        Ok(status.code().unwrap_or(-1))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = (installer_kind, product_code, uninstall_path, args);
+        Err("Uninstaller execution is only supported on Windows".to_string())
+    }
+}
+
 /// Delete a directory recursively (used for uninstalling managed apps)
 #[tauri::command]
 fn delete_directory(path: String) -> Result<(), String> {
@@ -242,6 +355,8 @@ pub fn run() {
             read_text_file,
             write_text_file,
             delete_directory,
+            run_installer,
+            run_uninstaller,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

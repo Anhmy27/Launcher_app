@@ -10,6 +10,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -69,8 +70,11 @@ type CreateVersionRequest struct {
 	EntryPoint  string `form:"entry_point"` // optional – auto-detected if empty
 	DistributionType     string `form:"distribution_type"` // portable|installer|url (default portable)
 	LaunchURL            string `form:"launch_url"`        // required for url
-	InstallerSilentArgs  string `form:"installer_silent_args"`
-	InstallerLaunchPath  string `form:"installer_launch_path"` // optional absolute path after install
+	InstallerSilentArgs    string `form:"installer_silent_args"`
+	InstallerLaunchPath    string `form:"installer_launch_path"`
+	InstallerProductCode   string `form:"installer_product_code"`
+	InstallerUninstallPath string `form:"installer_uninstall_path"`
+	InstallerUninstallArgs string `form:"installer_uninstall_args"`
 }
 
 type UpdateVersionRequest struct {
@@ -117,8 +121,13 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 
 	// URL-only release: no file upload, no manifest
 	if distType == "url" {
-		if strings.TrimSpace(req.LaunchURL) == "" {
+		launchURL := strings.TrimSpace(req.LaunchURL)
+		if launchURL == "" {
 			utils.Error(c, http.StatusBadRequest, "launch_url is required for distribution_type=url")
+			return
+		}
+		if !isValidLaunchURL(launchURL) {
+			utils.Error(c, http.StatusBadRequest, "launch_url must start with http:// or https://")
 			return
 		}
 
@@ -133,7 +142,7 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 			FileHash:         "",
 			ManifestURL:      "",
 			DistributionType: "url",
-			LaunchURL:        strings.TrimSpace(req.LaunchURL),
+			LaunchURL:        launchURL,
 			IsReleased:       false,
 			IsRequired:       req.IsRequired,
 		}
@@ -164,6 +173,16 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	fileContent, err := io.ReadAll(src)
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, "Failed to read file")
+		return
+	}
+
+	if distType == "portable" && !isZipFile(file.Filename) && isInstallerOnlyFile(file.Filename) {
+		utils.Error(c, http.StatusBadRequest, "Portable versions cannot upload .msi files; use distribution_type=installer")
+		return
+	}
+
+	if distType == "installer" && strings.TrimSpace(req.InstallerLaunchPath) == "" {
+		utils.Error(c, http.StatusBadRequest, "installer_launch_path is required for distribution_type=installer")
 		return
 	}
 
@@ -222,8 +241,8 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 				URL:    url,
 			})
 
-			// Auto-detect entry point: first .exe at root level
-			if entryPoint == "" && isExecutable(zf.Name) && !strings.Contains(zf.Name, "/") && !strings.Contains(zf.Name, "\\") {
+			// Auto-detect entry point
+			if entryPoint == "" && isZipEntryPointCandidate(zf.Name, distType) {
 				entryPoint = zf.Name
 			}
 		}
@@ -259,6 +278,16 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		entryPoint = req.EntryPoint
 	}
 
+	if entryPoint == "" {
+		utils.Error(c, http.StatusBadRequest, "Could not detect entry_point; specify it manually")
+		return
+	}
+
+	if err := validateEntryPointForDistribution(distType, entryPoint); err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	// Calculate total size
 	var totalSize int64
 	for _, f := range manifestFiles {
@@ -273,7 +302,12 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		} else if strings.HasSuffix(lowerEntry, ".exe") {
 			installerKind = "exe"
 		} else {
-			installerKind = "unknown"
+			utils.Error(c, http.StatusBadRequest, "installer entry_point must be .msi or .exe")
+			return
+		}
+		if err := validateInstallerMetadata(installerKind, req); err != nil {
+			utils.Error(c, http.StatusBadRequest, err.Error())
+			return
 		}
 	}
 
@@ -299,6 +333,9 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		manifestJSONMap["installer_kind"] = installerKind
 		manifestJSONMap["installer_silent_args"] = req.InstallerSilentArgs
 		manifestJSONMap["installer_launch_path"] = req.InstallerLaunchPath
+		manifestJSONMap["installer_product_code"] = req.InstallerProductCode
+		manifestJSONMap["installer_uninstall_path"] = req.InstallerUninstallPath
+		manifestJSONMap["installer_uninstall_args"] = req.InstallerUninstallArgs
 	}
 
 	manifestJSON, err := json.MarshalIndent(manifestJSONMap, "", "  ")
@@ -329,10 +366,13 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		FileSize:    totalSize,
 		FileHash:    manifestHash,
 		ManifestURL: manifestURL,
-		DistributionType:    distType,
-		InstallerKind:       installerKind,
-		InstallerSilentArgs: req.InstallerSilentArgs,
-		InstallerLaunchPath: req.InstallerLaunchPath,
+		DistributionType:       distType,
+		InstallerKind:          installerKind,
+		InstallerSilentArgs:    req.InstallerSilentArgs,
+		InstallerLaunchPath:    req.InstallerLaunchPath,
+		InstallerProductCode:   req.InstallerProductCode,
+		InstallerUninstallPath: req.InstallerUninstallPath,
+		InstallerUninstallArgs: req.InstallerUninstallArgs,
 		IsReleased:  false,
 		IsRequired:  req.IsRequired,
 	}
@@ -434,6 +474,11 @@ func (h *AppVersionHandler) Release(c *gin.Context) {
 		return
 	}
 
+	if err := validateVersionForRelease(version); err != nil {
+		utils.Error(c, http.StatusBadRequest, err.Error())
+		return
+	}
+
 	now := time.Now()
 	if err := database.DB.Model(&version).Updates(map[string]interface{}{
 		"is_released":  true,
@@ -460,8 +505,88 @@ func isZipFile(filename string) bool {
 	return ext == ".zip"
 }
 
-// isExecutable checks whether the filename looks like a Windows executable.
-func isExecutable(filename string) bool {
+func isInstallerOnlyFile(filename string) bool {
+	return strings.ToLower(filepath.Ext(filename)) == ".msi"
+}
+
+func isZipEntryPointCandidate(filename, distType string) bool {
+	if strings.Contains(filename, "/") || strings.Contains(filename, "\\") {
+		return false
+	}
 	ext := strings.ToLower(filepath.Ext(filename))
-	return ext == ".exe" || ext == ".msi"
+	if distType == "installer" {
+		return ext == ".msi" || ext == ".exe"
+	}
+	return ext == ".exe"
+}
+
+func isValidLaunchURL(raw string) bool {
+	parsed, err := url.Parse(strings.TrimSpace(raw))
+	if err != nil {
+		return false
+	}
+	scheme := strings.ToLower(parsed.Scheme)
+	return (scheme == "http" || scheme == "https") && parsed.Host != ""
+}
+
+func validateEntryPointForDistribution(distType, entryPoint string) error {
+	lower := strings.ToLower(entryPoint)
+	switch distType {
+	case "installer":
+		if !strings.HasSuffix(lower, ".msi") && !strings.HasSuffix(lower, ".exe") {
+			return fmt.Errorf("installer entry_point must be .msi or .exe")
+		}
+	case "portable":
+		if strings.HasSuffix(lower, ".msi") {
+			return fmt.Errorf("portable entry_point cannot be .msi")
+		}
+		if !strings.HasSuffix(lower, ".exe") {
+			return fmt.Errorf("portable entry_point must be .exe")
+		}
+	}
+	return nil
+}
+
+func validateVersionForRelease(version models.AppVersion) error {
+	distType := strings.ToLower(strings.TrimSpace(version.DistributionType))
+	if distType == "" {
+		distType = "portable"
+	}
+
+	switch distType {
+	case "url":
+		if strings.TrimSpace(version.LaunchURL) == "" {
+			return fmt.Errorf("launch_url is required before releasing a URL version")
+		}
+		if !isValidLaunchURL(version.LaunchURL) {
+			return fmt.Errorf("launch_url must start with http:// or https://")
+		}
+	case "installer":
+		if strings.TrimSpace(version.InstallerLaunchPath) == "" {
+			return fmt.Errorf("installer_launch_path is required before releasing an installer version")
+		}
+		if strings.TrimSpace(version.ManifestURL) == "" {
+			return fmt.Errorf("manifest is required before releasing an installer version")
+		}
+		if strings.ToLower(version.InstallerKind) == "msi" && strings.TrimSpace(version.InstallerProductCode) == "" {
+			return fmt.Errorf("installer_product_code is required before releasing an MSI installer")
+		}
+	case "portable":
+		if strings.TrimSpace(version.ManifestURL) == "" {
+			return fmt.Errorf("manifest is required before releasing a portable version")
+		}
+	}
+	return nil
+}
+
+func validateInstallerMetadata(kind string, req CreateVersionRequest) error {
+	switch strings.ToLower(kind) {
+	case "msi":
+		if strings.TrimSpace(req.InstallerProductCode) == "" {
+			return fmt.Errorf("installer_product_code is required for MSI installers (for uninstall)")
+		}
+	case "exe":
+		// EXE uninstall is optional — cache-only removal if uninstall path is not set
+	}
+	return nil
 }

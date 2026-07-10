@@ -30,6 +30,9 @@ interface AppVersion {
   installer_kind?: string;
   installer_silent_args?: string;
   installer_launch_path?: string;
+  installer_product_code?: string;
+  installer_uninstall_path?: string;
+  installer_uninstall_args?: string;
 }
 
 export default function AppDetailPage() {
@@ -51,6 +54,9 @@ export default function AppDetailPage() {
   const [launchUrl, setLaunchUrl] = useState("");
   const [installerSilentArgs, setInstallerSilentArgs] = useState("");
   const [installerLaunchPath, setInstallerLaunchPath] = useState("");
+  const [installerProductCode, setInstallerProductCode] = useState("");
+  const [installerUninstallPath, setInstallerUninstallPath] = useState("");
+  const [installerUninstallArgs, setInstallerUninstallArgs] = useState("");
 
   useEffect(() => {
     loadAppData();
@@ -75,6 +81,15 @@ export default function AppDetailPage() {
     e.preventDefault();
     if (distributionType !== "url" && !uploadingFile) return;
     if (distributionType === "url" && !launchUrl.trim()) return;
+    if (distributionType === "installer" && !installerLaunchPath.trim()) {
+      setError("Launch path after install is required for installer versions");
+      return;
+    }
+    const isMsiUpload = uploadingFile?.name.toLowerCase().endsWith(".msi");
+    if (distributionType === "installer" && isMsiUpload && !installerProductCode.trim()) {
+      setError("MSI Product Code is required for MSI installers (used for uninstall)");
+      return;
+    }
 
     setIsUploading(true);
     try {
@@ -102,8 +117,15 @@ export default function AppDetailPage() {
         if (installerSilentArgs.trim()) {
           formData.append("installer_silent_args", installerSilentArgs.trim());
         }
-        if (installerLaunchPath.trim()) {
-          formData.append("installer_launch_path", installerLaunchPath.trim());
+        formData.append("installer_launch_path", installerLaunchPath.trim());
+        if (installerProductCode.trim()) {
+          formData.append("installer_product_code", installerProductCode.trim());
+        }
+        if (installerUninstallPath.trim()) {
+          formData.append("installer_uninstall_path", installerUninstallPath.trim());
+        }
+        if (installerUninstallArgs.trim()) {
+          formData.append("installer_uninstall_args", installerUninstallArgs.trim());
         }
       }
 
@@ -115,6 +137,9 @@ export default function AppDetailPage() {
       setLaunchUrl("");
       setInstallerSilentArgs("");
       setInstallerLaunchPath("");
+      setInstallerProductCode("");
+      setInstallerUninstallPath("");
+      setInstallerUninstallArgs("");
       await loadAppData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to upload version");
@@ -290,7 +315,7 @@ export default function AppDetailPage() {
                 </div>
                 <div>
                   <label className="block text-sm font-medium text-gray-700 mb-1">
-                    Launch Path After Install (optional)
+                    Launch Path After Install (required)
                   </label>
                   <input
                     type="text"
@@ -299,10 +324,53 @@ export default function AppDetailPage() {
                     placeholder="e.g., C:\\Program Files\\MyApp\\MyApp.exe"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     disabled={isUploading}
+                    required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Needed for managed launch; otherwise launcher can only run the installer file.
+                    Absolute path to the app executable after silent install. Required for launch.
                   </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    MSI Product Code (required for .msi)
+                  </label>
+                  <input
+                    type="text"
+                    value={installerProductCode}
+                    onChange={(e) => setInstallerProductCode(e.target.value)}
+                    placeholder="e.g., {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={isUploading}
+                  />
+                  <p className="text-xs text-gray-500 mt-1">
+                    Used for msiexec /x uninstall. Find in registry or MSI properties.
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Uninstall Path (EXE installers)
+                  </label>
+                  <input
+                    type="text"
+                    value={installerUninstallPath}
+                    onChange={(e) => setInstallerUninstallPath(e.target.value)}
+                    placeholder="e.g., C:\\Program Files\\MyApp\\uninstall.exe"
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={isUploading}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                    Uninstall Silent Args (optional)
+                  </label>
+                  <input
+                    type="text"
+                    value={installerUninstallArgs}
+                    onChange={(e) => setInstallerUninstallArgs(e.target.value)}
+                    placeholder='e.g., /qn (MSI) or /S (EXE)'
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    disabled={isUploading}
+                  />
                 </div>
               </>
             )}
@@ -323,10 +391,11 @@ export default function AppDetailPage() {
             </div>{" "}
             <button
               type="submit"
-              disabled={
+                disabled={
                 isUploading ||
                 (distributionType !== "url" && !uploadingFile) ||
-                (distributionType === "url" && !launchUrl.trim())
+                (distributionType === "url" && !launchUrl.trim()) ||
+                (distributionType === "installer" && !installerLaunchPath.trim())
               }
               className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
             >

@@ -21,6 +21,9 @@ type AppVersion struct {
 	InstallerKind      string `gorm:"type:varchar(20)" json:"installer_kind"`
 	InstallerSilentArgs string `gorm:"type:varchar(1000)" json:"installer_silent_args"`
 	InstallerLaunchPath string `gorm:"type:varchar(1000)" json:"installer_launch_path"`
+	InstallerProductCode   string `gorm:"type:varchar(100)" json:"installer_product_code"`
+	InstallerUninstallPath string `gorm:"type:varchar(1000)" json:"installer_uninstall_path"`
+	InstallerUninstallArgs string `gorm:"type:varchar(1000)" json:"installer_uninstall_args"`
 	IsReleased  bool       `gorm:"not null;default:false" json:"is_released"`
 	IsRequired  bool       `gorm:"not null;default:false" json:"is_required"`
 	ReleaseDate *time.Time `json:"release_date"`
