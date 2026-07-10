@@ -5,9 +5,9 @@ import { tauriCommands } from "../lib/tauri";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
 import downloadManager, { isDownloadInProgress } from "../lib/downloadManager";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { useLocale } from "../context/LocaleContext";
 import {
   INSTALL_STATE_FILE,
-  distributionLabel,
   getBlockingRequiredUpdate,
   getDistributionType,
   hasDistributionMismatch,
@@ -51,6 +51,7 @@ interface AppInstallStatus {
 }
 
 export default function Library({ downloads, onStartDownload }: LibraryProps) {
+  const { t, distLabel } = useLocale();
   const [myApps, setMyApps] = useState<UserApp[]>([]);
   const [appDetails, setAppDetails] = useState<
     Map<string, { app: App; versions: AppVersion[] }>
@@ -296,9 +297,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
   ) => {
     try {
       if (status?.forceUpdateRequired) {
-        setMessage(
-          `Bắt buộc cập nhật lên v${status.forceUpdateVersionName} trước khi chạy.`,
-        );
+        setMessage(t.forceUpdateBeforeLaunch.replace("{version}", status.forceUpdateVersionName || ""));
         return;
       }
 
@@ -326,16 +325,16 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
           localMeta?.installer_launch_path?.trim() ||
           latestVersion.installer_launch_path?.trim();
         if (!launchPath) {
-          setMessage("Chưa cấu hình đường dẫn launch. Liên hệ publisher.");
+          setMessage(t.launchPathMissing);
           return;
         }
         const exists = await tauriCommands.checkAppExists(launchPath);
         if (!exists) {
-          setMessage(`Không tìm thấy app tại: ${launchPath}`);
+          setMessage(`${t.appNotFoundAt}: ${launchPath}`);
           return;
         }
         await tauriCommands.launchApp(launchPath);
-        setMessage(`Launching ${appName}...`);
+        setMessage(`${t.launching} ${appName}...`);
         return;
       }
 
@@ -409,7 +408,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
       await tauriCommands.launchApp(resolvedExePath);
       setMessage(`Launching ${appName}...`);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Failed to launch app");
+      setMessage(err instanceof Error ? err.message : t.failedLaunch);
     }
   };
 
@@ -434,13 +433,13 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
 
     let prompt: string;
     if (isUrl) {
-      prompt = `Remove ${appName} from this device? It stays in your library — you can open the link again anytime.`;
+      prompt = t.uninstallUrl.replace("{name}", appName);
     } else if (isInstaller && systemUninstall) {
-      prompt = `Uninstall ${appName} from Windows and remove local cache? The app stays in your library.`;
+      prompt = t.uninstallWindows.replace("{name}", appName);
     } else if (partialNote) {
-      prompt = `${partialNote}\n\nRemove local cache for ${appName}? The app stays in your library.`;
+      prompt = `${partialNote}\n\n${t.uninstallLocal.replace("{name}", appName)}`;
     } else {
-      prompt = `Remove local files for ${appName}? The app stays in your library — you can install again anytime.`;
+      prompt = t.uninstallLocal.replace("{name}", appName);
     }
 
     if (!confirm(prompt)) return;
@@ -449,21 +448,21 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
       const result = await uninstallAppFromDevice(appSlug, appId, latestVersion);
 
       if (isUrl) {
-        setMessage(`${appName} removed from this device. Still in your library.`);
+        setMessage(`${appName} ${t.removedFromDevice}`);
       } else if (result.removedSystemApp) {
-        setMessage(`${appName} uninstalled from Windows. Still in your library.`);
+        setMessage(`${appName} ${t.uninstalledWindows}`);
       } else {
-        setMessage(`${appName} local files removed. Still in your library.`);
+        setMessage(`${appName} ${t.localFilesRemoved}`);
       }
 
       await checkFileStatuses();
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Failed to uninstall");
+      setMessage(err instanceof Error ? err.message : t.failedUninstall);
     }
   };
 
   const handleRemoveFromLibrary = async (appId: string, appName: string) => {
-    if (!confirm(`Remove ${appName} from your library? Local files on this device will not be deleted.`)) {
+    if (!confirm(t.removeFromLibraryConfirm.replace("{name}", appName))) {
       return;
     }
 
@@ -480,9 +479,9 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
         next.delete(appId);
         return next;
       });
-      setMessage(`${appName} removed from library.`);
+      setMessage(`${appName} ${t.removedFromLibrary}`);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Failed to remove");
+      setMessage(err instanceof Error ? err.message : t.failedRemove);
     }
   };
 
@@ -497,15 +496,15 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
   const handleOpenUrl = async (app: App, version: AppVersion) => {
     try {
       await downloadManager.openUrlApp(app, version);
-      setMessage(`Opening ${app.name}...`);
+      setMessage(`${t.opening} ${app.name}...`);
       await checkFileStatuses();
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Failed to open link");
+      setMessage(err instanceof Error ? err.message : t.failedOpen);
     }
   };
 
   const formatSize = (bytes: number, version?: AppVersion) => {
-    if (isUrlVersion(version)) return "Web link";
+    if (isUrlVersion(version)) return t.webLink;
     if (bytes === 0) return "0 B";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
@@ -521,7 +520,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     return (
       <div className="store-loading">
         <div className="spinner" />
-        <p>Loading library...</p>
+        <p>{t.loadingLibrary}</p>
       </div>
     );
   }
@@ -529,8 +528,8 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
   return (
     <div className="library-page">
       <div className="library-header">
-        <h2>📚 My Library</h2>
-        <p>Your applications</p>
+        <h2>{t.libraryTitle}</h2>
+        <p>{t.librarySubtitle}</p>
       </div>
 
       {message && <div className="store-message">{message}</div>}
@@ -538,7 +537,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
       {myApps.length === 0 ? (
         <div className="store-empty">
           <span className="empty-icon">📭</span>
-          <p>Your library is empty. Browse the Store to add apps!</p>
+          <p>{t.libraryEmpty}</p>
         </div>
       ) : (
         <div className="library-list">
@@ -559,7 +558,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                   )}
                 </div>
                 <div className="library-info">
-                  <h3>{app?.name || "Unknown App"}</h3>
+                  <h3>{app?.name || t.unknownApp}</h3>
                   <div className="library-meta">
                     {latestVersion && (
                       <>
@@ -567,35 +566,29 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                         <span className="dot">·</span>
                         <span>{formatSize(latestVersion.file_size, latestVersion)}</span>
                         <span className="dot">·</span>
-                        <span>{distributionLabel(latestVersion)}</span>
+                        <span>{distLabel(latestVersion.distribution_type)}</span>
                       </>
                     )}
                     {status?.hasDeviceSync && isUrlVersion(latestVersion) && (
-                      <span className="installed-badge">🔗 On this device</span>
+                      <span className="installed-badge">🔗 {t.onThisDevice}</span>
                     )}
                     {status?.needsReinstall && (
-                      <span className="update-badge">
-                        ⚠ Cần cài lại (đổi loại phân phối)
-                      </span>
+                      <span className="update-badge">⚠ {t.needsReinstall}</span>
                     )}
                     {status?.hasStaleLocal && isUrlVersion(latestVersion) && (
-                      <span className="update-badge">
-                        ⚠ Còn file cũ trên máy — gỡ để giải phóng dung lượng
-                      </span>
+                      <span className="update-badge">⚠ {t.staleLocalFiles}</span>
                     )}
                     {status?.forceUpdateRequired && (
-                      <span className="update-badge">
-                        ⛔ Bắt buộc cập nhật v{status.forceUpdateVersionName}
-                      </span>
+                      <span className="update-badge">⛔ {t.forceUpdate} v{status.forceUpdateVersionName}</span>
                     )}
                     {status?.partialUninstallNote && (
                       <span className="progress-text" title={status.partialUninstallNote}>
-                        ℹ️ Gỡ hạn chế
+                        ℹ️ {t.partialUninstall}
                       </span>
                     )}
                     {status?.isInstalled && !status?.hasUpdate && !isUrlVersion(latestVersion) && (
                       <span className="installed-badge">
-                        ✅ Installed
+                        ✅ {t.installed}
                         {status.localVersionName
                           ? ` (v${status.localVersionName})`
                           : ""}
@@ -603,7 +596,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                     )}
                     {status?.isInstalled && status?.hasUpdate && (
                       <span className="update-badge">
-                        🔄 Update available (v{status.localVersionName} → v
+                        🔄 {t.updateAvailable} (v{status.localVersionName} → v
                         {status.latestVersionName})
                       </span>
                     )}
@@ -619,16 +612,16 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       </div>
                       <span className="progress-text">
                         {dl.status === "fetching_manifest"
-                          ? "Fetching manifest..."
+                          ? t.fetchingManifest
                           : dl.status === "comparing"
-                            ? "Comparing files..."
+                            ? t.comparingFiles
                             : dl.status === "downloading"
-                              ? `Installing... ${dl.downloadedFiles ?? 0}/${dl.totalFiles ?? "?"} files (${dl.progress.toFixed(0)}%)`
+                              ? `${t.installing}... ${dl.downloadedFiles ?? 0}/${dl.totalFiles ?? "?"} file (${dl.progress.toFixed(0)}%)`
                               : dl.status === "running_installer"
-                                ? "Running installer..."
+                                ? t.runningInstaller
                                 : dl.status === "failed"
-                                  ? `❌ ${dl.fileName} — click Install to retry`
-                              : "❌ Failed"}
+                                  ? `❌ ${dl.fileName} — ${t.installFailed}`
+                              : t.failed}
                       </span>
                     </div>
                   )}
@@ -640,7 +633,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       className="install-btn"
                       onClick={() => handleOpenUrl(app, latestVersion)}
                     >
-                      ↗ Open
+                      ↗ {t.open}
                     </button>
                   )}
 
@@ -653,10 +646,10 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       onClick={() => app && onStartDownload(app, latestVersion)}
                     >
                       {status?.needsReinstall
-                        ? "🔄 Cài lại"
+                        ? `🔄 ${t.reinstall}`
                         : isInstallerVersion(latestVersion)
-                          ? "📥 Run Installer"
-                          : "📦 Install"}
+                          ? `📥 ${t.runInstaller}`
+                          : `📦 ${t.install}`}
                     </button>
                   )}
 
@@ -676,7 +669,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                           )
                         }
                       >
-                        ▶ Launch
+                        ▶ {t.launch}
                       </button>
                     )}
 
@@ -684,7 +677,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                     isInstallerVersion(latestVersion) &&
                     !status.canLaunch && (
                       <span className="progress-text" title="Set installer_launch_path in admin">
-                        ⚠ Launch path not found
+                        ⚠ {t.launchPathNotFound}
                       </span>
                     )}
 
@@ -696,7 +689,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       className="update-btn"
                       onClick={() => onStartDownload(app, latestVersion)}
                     >
-                      {status?.forceUpdateRequired ? "⛔ Bắt buộc Update" : "🔄 Update"}
+                      {status?.forceUpdateRequired ? `⛔ ${t.forceUpdateBtn}` : `🔄 ${t.update}`}
                     </button>
                   )}
 
@@ -705,7 +698,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                     <button
                       className="folder-btn"
                       onClick={() => handleOpenFolder(status.installDir!)}
-                      title="Open install folder"
+                      title={t.openFolder}
                     >
                       📂
                     </button>
@@ -725,11 +718,11 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       }
                       title={
                         status?.partialUninstallNote ||
-                        (isUrlVersion(latestVersion)
-                          ? "Remove from this device (keep in library)"
+                        (                        isUrlVersion(latestVersion)
+                          ? t.removeFromDevice
                           : isInstallerVersion(latestVersion) && canSystemUninstall(latestVersion)
-                            ? "Uninstall from Windows (keep in library)"
-                            : "Remove local files (keep in library)")
+                            ? t.removeFromDevice
+                            : t.removeFromDevice)
                       }
                     >
                       🗑
@@ -742,7 +735,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                     onClick={() =>
                       handleRemoveFromLibrary(ua.app_id, app?.name || "")
                     }
-                    title="Remove from library"
+                    title={t.removeFromLibrary}
                   >
                     ✕
                   </button>

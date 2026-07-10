@@ -1,23 +1,18 @@
 import { AuthProvider, useAuth } from "./context/AuthContext";
+import { ThemeProvider } from "./context/ThemeContext";
+import { LocaleProvider, useLocale } from "./context/LocaleContext";
 import Login from "./pages/Login";
 import Layout from "./components/Layout";
 
 function AppContent() {
   const { isAuthenticated, loading } = useAuth();
+  const { t } = useLocale();
 
   if (loading) {
     return (
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          justifyContent: "center",
-          height: "100vh",
-          background: "#0d0d15",
-          color: "#8b8b9e",
-        }}
-      >
-        Loading...
+      <div className="page-loading" style={{ height: "100vh" }}>
+        <div className="spinner" />
+        <p>{t.loading}</p>
       </div>
     );
   }
@@ -31,9 +26,13 @@ function AppContent() {
 
 function App() {
   return (
-    <AuthProvider>
-      <AppContent />
-    </AuthProvider>
+    <ThemeProvider>
+      <LocaleProvider>
+        <AuthProvider>
+          <AppContent />
+        </AuthProvider>
+      </LocaleProvider>
+    </ThemeProvider>
   );
 }
 

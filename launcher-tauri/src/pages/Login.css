@@ -7,24 +7,37 @@
   overflow: hidden;
 }
 
+.login-top-controls {
+  position: absolute;
+  top: 20px;
+  right: 20px;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
 .login-bg {
   position: absolute;
   inset: 0;
-  background: linear-gradient(135deg, #0f0c29, #302b63, #24243e);
+  background:
+    radial-gradient(ellipse 60% 50% at 20% 40%, rgba(99, 102, 241, 0.18), transparent),
+    radial-gradient(ellipse 50% 40% at 80% 60%, rgba(139, 92, 246, 0.12), transparent),
+    var(--bg-base);
   z-index: 0;
 }
 
 .login-card {
   position: relative;
   z-index: 1;
-  background: rgba(20, 20, 35, 0.95);
-  border: 1px solid rgba(255, 255, 255, 0.08);
-  border-radius: 16px;
-  padding: 40px;
+  background: rgba(17, 17, 24, 0.85);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  padding: 40px 36px;
   width: 400px;
-  max-width: 90vw;
-  box-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  backdrop-filter: blur(20px);
+  max-width: 92vw;
+  box-shadow: var(--shadow-card);
+  backdrop-filter: blur(24px);
 }
 
 .login-logo {
@@ -32,31 +45,33 @@
   margin-bottom: 32px;
 }
 
-.login-logo-icon {
-  font-size: 48px;
-  margin-bottom: 12px;
+.login-logo-mark {
+  margin: 0 auto 16px;
+  display: flex;
+  justify-content: center;
 }
 
 .login-logo h1 {
-  font-size: 24px;
+  font-size: 1.375rem;
   font-weight: 700;
-  color: #fff;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
   margin: 0;
 }
 
 .login-subtitle {
-  color: #8b8b9e;
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
   margin-top: 6px;
 }
 
 .login-error {
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  color: #f87171;
-  padding: 10px 14px;
-  border-radius: 8px;
-  font-size: 13px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.25);
+  color: #fca5a5;
+  padding: 11px 14px;
+  border-radius: var(--radius-sm);
+  font-size: 0.8125rem;
   margin-bottom: 16px;
 }
 
@@ -66,72 +81,71 @@
 
 .form-group label {
   display: block;
-  color: #a0a0b8;
-  font-size: 13px;
+  color: var(--text-secondary);
+  font-size: 0.8125rem;
   font-weight: 500;
   margin-bottom: 6px;
 }
 
 .form-group input {
   width: 100%;
-  padding: 12px 14px;
-  background: rgba(255, 255, 255, 0.06);
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 10px;
-  color: #fff;
-  font-size: 14px;
+  padding: 11px 14px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: 0.875rem;
   outline: none;
-  transition: all 0.2s;
-  box-sizing: border-box;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
 
 .form-group input:focus {
-  border-color: #6c5ce7;
-  box-shadow: 0 0 0 3px rgba(108, 92, 231, 0.2);
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-glow);
 }
 
 .form-group input::placeholder {
-  color: #555;
+  color: var(--text-muted);
 }
 
 .login-btn {
   width: 100%;
-  padding: 13px;
-  background: linear-gradient(135deg, #6c5ce7, #a855f7);
+  padding: 12px;
+  background: linear-gradient(135deg, var(--accent), #8b5cf6);
   border: none;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   color: #fff;
-  font-size: 15px;
+  font-size: 0.9375rem;
   font-weight: 600;
   cursor: pointer;
-  transition: all 0.2s;
+  transition: transform 0.15s, box-shadow 0.15s;
   margin-top: 8px;
 }
 
 .login-btn:hover:not(:disabled) {
   transform: translateY(-1px);
-  box-shadow: 0 6px 20px rgba(108, 92, 231, 0.4);
+  box-shadow: 0 6px 20px var(--accent-glow);
 }
 
 .login-btn:disabled {
-  opacity: 0.6;
+  opacity: 0.5;
   cursor: not-allowed;
 }
 
 .login-toggle {
   text-align: center;
-  margin-top: 20px;
-  color: #8b8b9e;
-  font-size: 13px;
+  margin-top: 22px;
+  color: var(--text-muted);
+  font-size: 0.8125rem;
 }
 
 .login-toggle button {
   background: none;
   border: none;
-  color: #a855f7;
+  color: var(--accent-hover);
   cursor: pointer;
   font-weight: 600;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 .login-toggle button:hover {

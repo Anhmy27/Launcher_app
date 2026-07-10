@@ -8,6 +8,7 @@ import {
   validateUploadForm,
   validateVersionForRelease,
 } from "@/lib/versionValidation";
+import { useLocale } from "@/lib/locale-context";
 
 interface App {
   id: string;
@@ -41,6 +42,7 @@ interface AppVersion {
 }
 
 export default function AppDetailPage() {
+  const { t } = useLocale();
   const params = useParams();
   const router = useRouter();
   const appId = params.id as string;
@@ -95,7 +97,7 @@ export default function AppDetailPage() {
       setVersions(versionsData || []);
       setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load app");
+      setError(err instanceof Error ? err.message : t.failedLoad);
     } finally {
       setIsLoading(false);
     }
@@ -164,7 +166,7 @@ export default function AppDetailPage() {
       setInstallerUninstallArgs("");
       await loadAppData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to upload version");
+      setError(err instanceof Error ? err.message : t.failedUpload);
     } finally {
       setIsUploading(false);
     }
@@ -184,7 +186,7 @@ export default function AppDetailPage() {
       await loadAppData();
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to release version",
+        err instanceof Error ? err.message : t.failedRelease,
       );
     } finally {
       setReleasingId(null);
@@ -192,7 +194,7 @@ export default function AppDetailPage() {
   };
 
   const handleDeleteVersion = async (versionId: string) => {
-    if (!confirm("Delete this version?")) return;
+    if (!confirm(t.confirmDeleteVersion)) return;
 
     setDeletingId(versionId);
     setError("");
@@ -200,74 +202,63 @@ export default function AppDetailPage() {
       await apiClient.deleteVersion(appId, versionId);
       await loadAppData();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete version");
+      setError(err instanceof Error ? err.message : t.failedDeleteVersion);
     } finally {
       setDeletingId(null);
     }
   };
 
-  if (isLoading) return <div className="p-8">Loading...</div>;
-  if (!app) return <div className="p-8 text-red-600">App not found</div>;
+  if (isLoading) return <div className="admin-empty">{t.loading}</div>;
+  if (!app) return <div className="admin-alert-error">{t.appNotFound}</div>;
 
   return (
     <div>
-      <button
-        onClick={() => router.back()}
-        className="mb-4 text-blue-600 hover:underline"
-      >
-        ← Back
+      <button onClick={() => router.back()} className="admin-btn-ghost mb-6">
+        {t.back}
       </button>
 
-      <div className="bg-white p-6 rounded-lg shadow mb-6">
-        <h1 className="text-3xl font-bold mb-2">{app.name}</h1>
-        <p className="text-gray-600 mb-4">{app.description}</p>
+      <div className="admin-card mb-6">
+        <h1 className="admin-page-title" style={{ marginBottom: "0.5rem" }}>
+          {app.name}
+        </h1>
+        <p style={{ color: "var(--admin-text-muted)", marginBottom: "1.5rem" }}>
+          {app.description}
+        </p>
 
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-2 gap-4 text-sm">
           <div>
-            <label className="text-sm font-semibold text-gray-700">
-              Category
-            </label>
-            <p className="text-lg">{app.category}</p>
+            <p className="admin-label">{t.category}</p>
+            <p>{app.category || "—"}</p>
           </div>
           <div>
-            <label className="text-sm font-semibold text-gray-700">
-              Status
-            </label>
-            <p
-              className={`text-lg font-semibold ${app.is_published ? "text-green-600" : "text-gray-600"}`}
+            <p className="admin-label">{t.status}</p>
+            <span
+              className={`admin-badge ${app.is_published ? "admin-badge-green" : "admin-badge-gray"}`}
             >
-              {app.is_published ? "Published" : "Draft"}
-            </p>
+              {app.is_published ? t.publishedStatus : t.draft}
+            </span>
           </div>
           <div>
-            <label className="text-sm font-semibold text-gray-700">Slug</label>
-            <p className="text-sm font-mono">{app.slug}</p>
+            <p className="admin-label">{t.slug}</p>
+            <p className="font-mono text-xs">{app.slug}</p>
           </div>
           <div>
-            <label className="text-sm font-semibold text-gray-700">
-              Created
-            </label>
-            <p className="text-sm">
-              {new Date(app.created_at).toLocaleDateString()}
-            </p>
+            <p className="admin-label">{t.created}</p>
+            <p>{new Date(app.created_at).toLocaleDateString()}</p>
           </div>
         </div>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
-        </div>
-      )}
+      {error && <div className="admin-alert-error">{error}</div>}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
         {/* Upload Version */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-bold mb-4">Upload New Version</h2>
+        <div className="admin-card">
+          <h2 className="admin-card-title">{t.uploadVersion}</h2>
 
           <form onSubmit={handleUploadVersion} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="admin-label">
                 Distribution Type
               </label>
               <select
@@ -277,18 +268,18 @@ export default function AppDetailPage() {
                     e.target.value as "portable" | "installer" | "url",
                   )
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                className="admin-input text-sm"
                 disabled={isUploading}
               >
-                <option value="portable">Portable (run directly)</option>
-                <option value="installer">Installer (MSI/Setup)</option>
-                <option value="url">URL (web app)</option>
+                <option value="portable">{t.portable}</option>
+                <option value="installer">{t.installer}</option>
+                <option value="url">{t.url}</option>
               </select>
             </div>
 
             {distributionType === "url" && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="admin-label">
                   Launch URL
                 </label>
                 <input
@@ -296,30 +287,30 @@ export default function AppDetailPage() {
                   value={launchUrl}
                   onChange={(e) => setLaunchUrl(e.target.value)}
                   placeholder="https://example.com"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  className="admin-input text-sm"
                   disabled={isUploading}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
                   Launcher will open this URL (no file upload).
                 </p>
               </div>
             )}
 
             <div style={{ display: distributionType === "url" ? "none" : "block" }}>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="admin-label">
                 Build File (.exe, .msi, .zip)
               </label>
               <input
                 key={fileInputKey}
                 type="file"
                 onChange={(e) => setUploadingFile(e.target.files?.[0] || null)}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg"
+                className="admin-input"
                 disabled={isUploading}
               />
             </div>
             {distributionType !== "url" && (
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">
+                <label className="admin-label">
                   Entry Point (optional)
                 </label>
                 <input
@@ -327,10 +318,10 @@ export default function AppDetailPage() {
                   value={entryPoint}
                   onChange={(e) => setEntryPoint(e.target.value)}
                   placeholder="e.g., app.exe (auto-detected if empty)"
-                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  className="admin-input text-sm"
                   disabled={isUploading}
                 />
-                <p className="text-xs text-gray-500 mt-1">
+                <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
                   Main executable inside the build. Auto-detected for .exe/.msi.
                 </p>
               </div>
@@ -339,7 +330,7 @@ export default function AppDetailPage() {
             {distributionType === "installer" && (
               <>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="admin-label">
                     Installer Silent Args (optional)
                   </label>
                   <input
@@ -347,12 +338,12 @@ export default function AppDetailPage() {
                     value={installerSilentArgs}
                     onChange={(e) => setInstallerSilentArgs(e.target.value)}
                     placeholder='e.g., /qn /norestart (MSI) or /S (EXE)'
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="admin-input text-sm"
                     disabled={isUploading}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="admin-label">
                     Launch Path After Install (required)
                   </label>
                   <input
@@ -360,15 +351,15 @@ export default function AppDetailPage() {
                     value={installerLaunchPath}
                     onChange={(e) => setInstallerLaunchPath(e.target.value)}
                     placeholder="e.g., C:\\Program Files\\MyApp\\MyApp.exe"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="admin-input text-sm"
                     disabled={isUploading}
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
                     Absolute path to the app executable after silent install.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="admin-label">
                     MSI Product Code (required for .msi)
                   </label>
                   <input
@@ -376,15 +367,15 @@ export default function AppDetailPage() {
                     value={installerProductCode}
                     onChange={(e) => setInstallerProductCode(e.target.value)}
                     placeholder="e.g., {XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX}"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="admin-input text-sm"
                     disabled={isUploading}
                   />
-                  <p className="text-xs text-gray-500 mt-1">
+                  <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
                     Used for msiexec /x uninstall.
                   </p>
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="admin-label">
                     Uninstall Path (EXE installers)
                   </label>
                   <input
@@ -392,12 +383,12 @@ export default function AppDetailPage() {
                     value={installerUninstallPath}
                     onChange={(e) => setInstallerUninstallPath(e.target.value)}
                     placeholder="e.g., C:\\Program Files\\MyApp\\uninstall.exe"
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="admin-input text-sm"
                     disabled={isUploading}
                   />
                 </div>
                 <div>
-                  <label className="block text-sm font-medium text-gray-700 mb-1">
+                  <label className="admin-label">
                     Uninstall Silent Args (optional)
                   </label>
                   <input
@@ -405,14 +396,14 @@ export default function AppDetailPage() {
                     value={installerUninstallArgs}
                     onChange={(e) => setInstallerUninstallArgs(e.target.value)}
                     placeholder='e.g., /qn (MSI) or /S (EXE)'
-                    className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                    className="admin-input text-sm"
                     disabled={isUploading}
                   />
                 </div>
               </>
             )}
             <div>
-              <label className="flex items-center gap-2 text-sm font-medium text-gray-700">
+              <label className="flex items-center gap-2 admin-label">
                 <input
                   type="checkbox"
                   checked={isRequired}
@@ -422,23 +413,23 @@ export default function AppDetailPage() {
                 />
                 Force Update (Mark as Required)
               </label>
-              <p className="text-xs text-gray-500 mt-1">
+              <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
                 Users must update to this version
               </p>
             </div>{" "}
             {uploadValidationError && (
-              <p className="text-sm text-amber-700">{uploadValidationError}</p>
+              <p className="text-sm" style={{ color: "var(--admin-warning)" }}>{uploadValidationError}</p>
             )}
             <button
               type="submit"
               disabled={uploadDisabled}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+              className="admin-btn-primary w-full"
             >
-              {isUploading ? "Uploading..." : "Upload Version"}
+              {isUploading ? t.uploading : t.uploadVersionBtn}
             </button>
           </form>
 
-          <p className="text-xs text-gray-500 mt-4">
+          <p className="text-xs mt-4" style={{ color: "var(--admin-text-muted)" }}>
             ✓ Files hashed with SHA256
             <br />✓ Manifest generated automatically
             <br />✓ ZIP files extracted &amp; uploaded individually
@@ -446,70 +437,56 @@ export default function AppDetailPage() {
         </div>
 
         {/* Versions List */}
-        <div className="lg:col-span-2 bg-white rounded-lg shadow overflow-hidden">
-          <div className="p-6 border-b">
-            <h2 className="text-xl font-bold">Versions ({versions.length})</h2>
+        <div className="lg:col-span-2 admin-table-wrap">
+          <div className="p-6" style={{ borderBottom: "1px solid var(--admin-border)" }}>
+            <h2 className="admin-card-title" style={{ marginBottom: 0 }}>
+              Versions ({versions.length})
+            </h2>
           </div>
 
           {versions.length === 0 ? (
-            <div className="p-6 text-center text-gray-500">
+            <div className="admin-empty">
               No versions yet. Upload one to get started!
             </div>
           ) : (
-            <table className="w-full">
-              <thead className="bg-gray-50 border-b">
+            <table className="admin-table">
+              <thead>
                 <tr>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Version
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Status
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Manifest
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Type
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Hash
-                  </th>
-                  <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                    Actions
-                  </th>
+                  <th>Version</th>
+                  <th>Status</th>
+                  <th>Manifest</th>
+                  <th>Type</th>
+                  <th>Hash</th>
+                  <th>Actions</th>
                 </tr>
               </thead>
-              <tbody className="divide-y">
+              <tbody>
                 {versions.map((v) => (
-                  <tr key={v.id} className="hover:bg-gray-50">
-                    <td className="px-6 py-4">v{v.version_code}</td>
-                    <td className="px-6 py-4">
+                  <tr key={v.id}>
+                    <td>v{v.version_code}</td>
+                    <td>
                       <div className="space-y-1">
                         <span
-                          className={`px-2 py-1 rounded text-xs font-medium ${
-                            v.is_released
-                              ? "bg-green-100 text-green-800"
-                              : "bg-yellow-100 text-yellow-800"
-                          }`}
+                          className={`admin-badge ${v.is_released ? "admin-badge-green" : "admin-badge-yellow"}`}
                         >
-                          {v.is_released ? "Released" : "Draft"}
+                          {v.is_released ? t.released : t.draft}
                         </span>
                         {v.is_required && (
-                          <span className="ml-2 px-2 py-1 bg-red-100 text-red-800 rounded text-xs font-medium">
+                          <span className="admin-badge admin-badge-red ml-2">
                             Required
                           </span>
                         )}
                       </div>
                     </td>
-                    <td className="px-6 py-4">
+                    <td>
                       {v.manifest_url && (
                         <a
                           href={v.manifest_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-sm"
+                          className="admin-link text-sm"
                         >
-                          View Manifest 📋
+                          Manifest
                         </a>
                       )}
                       {!v.manifest_url && v.launch_url && (
@@ -517,21 +494,21 @@ export default function AppDetailPage() {
                           href={v.launch_url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="text-blue-600 hover:underline text-sm"
+                          className="admin-link text-sm"
                         >
-                          Open URL ↗
+                          Open URL
                         </a>
                       )}
                     </td>
-                    <td className="px-6 py-4 text-sm">
+                    <td className="text-sm">
                       <div>{v.distribution_type || "portable"}</div>
                       {v.distribution_type === "url" && v.launch_url && (
-                        <div className="text-xs text-gray-500 truncate max-w-[200px]" title={v.launch_url}>
+                        <div className="text-xs truncate max-w-[200px]" style={{ color: "var(--admin-text-muted)" }} title={v.launch_url}>
                           {v.launch_url}
                         </div>
                       )}
                       {v.distribution_type === "installer" && (
-                        <div className="text-xs text-gray-500 space-y-0.5">
+                        <div className="text-xs space-y-0.5" style={{ color: "var(--admin-text-muted)" }}>
                           {v.installer_kind && <div>Kind: {v.installer_kind}</div>}
                           {v.installer_launch_path && (
                             <div className="truncate max-w-[200px]" title={v.installer_launch_path}>
@@ -541,25 +518,25 @@ export default function AppDetailPage() {
                         </div>
                       )}
                     </td>
-                    <td className="px-6 py-4 font-mono text-xs">
+                    <td className="font-mono text-xs">
                       {v.file_hash ? `${v.file_hash.substring(0, 16)}...` : "-"}
                     </td>
-                    <td className="px-6 py-4 space-x-2">
+                    <td className="space-x-2">
                       {!v.is_released && (
                         <button
                           onClick={() => handleReleaseVersion(v)}
                           disabled={releasingId === v.id || deletingId === v.id}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-sm disabled:opacity-50"
+                          className="admin-btn-success disabled:opacity-50"
                         >
-                          {releasingId === v.id ? "Releasing..." : "Release"}
+                          {releasingId === v.id ? t.releasing : t.release}
                         </button>
                       )}
                       <button
                         onClick={() => handleDeleteVersion(v.id)}
                         disabled={releasingId === v.id || deletingId === v.id}
-                        className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm disabled:opacity-50"
+                        className="admin-btn-danger disabled:opacity-50"
                       >
-                        {deletingId === v.id ? "Deleting..." : "Delete"}
+                        {deletingId === v.id ? t.deleting : t.delete}
                       </button>
                     </td>
                   </tr>

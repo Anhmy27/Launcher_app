@@ -2,14 +2,12 @@
   display: flex;
   height: 100vh;
   overflow: hidden;
-  background: #0d0d15;
 }
 
-/* ==================== Sidebar ==================== */
 .sidebar {
-  width: 220px;
-  background: rgba(15, 15, 25, 0.98);
-  border-right: 1px solid rgba(255, 255, 255, 0.06);
+  width: 240px;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border-subtle);
   display: flex;
   flex-direction: column;
   flex-shrink: 0;
@@ -18,40 +16,44 @@
 .sidebar-logo {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 20px 18px;
-  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-}
-
-.logo-icon {
-  font-size: 24px;
+  gap: 12px;
+  padding: 22px 20px;
+  border-bottom: 1px solid var(--border-subtle);
 }
 
 .logo-text {
-  font-size: 18px;
+  font-size: 1.0625rem;
   font-weight: 700;
-  color: #fff;
-  letter-spacing: -0.3px;
+  color: var(--text-primary);
+  letter-spacing: -0.02em;
+}
+
+.logo-sub {
+  font-size: 0.6875rem;
+  color: var(--text-muted);
+  display: block;
+  margin-top: 1px;
 }
 
 .sidebar-nav {
   flex: 1;
-  padding: 12px 10px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .nav-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   padding: 11px 14px;
-  border-radius: 10px;
+  border-radius: var(--radius-sm);
   border: none;
   background: none;
-  color: #8b8b9e;
-  font-size: 14px;
+  color: var(--text-muted);
+  font-size: 0.875rem;
+  font-weight: 500;
   cursor: pointer;
   transition: all 0.15s;
   position: relative;
@@ -60,49 +62,51 @@
 }
 
 .nav-item:hover {
-  background: rgba(255, 255, 255, 0.05);
-  color: #c4c4d6;
+  background: var(--bg-surface-hover);
+  color: var(--text-secondary);
 }
 
 .nav-item.active {
-  background: rgba(108, 92, 231, 0.15);
-  color: #c4b5fd;
+  background: rgba(99, 102, 241, 0.12);
+  color: var(--accent-hover);
 }
 
-.nav-item.active::before {
-  content: '';
-  position: absolute;
-  left: 0;
-  top: 50%;
-  transform: translateY(-50%);
-  width: 3px;
-  height: 20px;
-  background: #6c5ce7;
-  border-radius: 0 3px 3px 0;
+.nav-item.active .nav-icon {
+  color: var(--accent-hover);
 }
 
 .nav-icon {
-  font-size: 16px;
   width: 20px;
-  text-align: center;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  opacity: 0.85;
+}
+
+.nav-icon svg {
+  width: 18px;
+  height: 18px;
 }
 
 .nav-badge {
   margin-left: auto;
-  background: #6c5ce7;
+  background: var(--accent);
   color: #fff;
-  font-size: 11px;
-  font-weight: 600;
-  padding: 1px 7px;
-  border-radius: 10px;
+  font-size: 0.6875rem;
+  font-weight: 700;
+  padding: 2px 7px;
+  border-radius: 999px;
+  min-width: 20px;
+  text-align: center;
 }
 
-/* ==================== User ==================== */
 .sidebar-footer {
-  padding: 14px;
-  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 14px 16px;
+  border-top: 1px solid var(--border-subtle);
   display: flex;
-  align-items: center;
+  flex-direction: column;
   gap: 10px;
 }
 
@@ -110,21 +114,20 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  flex: 1;
-  min-width: 0;
+  width: 100%;
 }
 
 .user-avatar {
-  width: 34px;
-  height: 34px;
+  width: 36px;
+  height: 36px;
   border-radius: 10px;
-  background: linear-gradient(135deg, #6c5ce7, #a855f7);
+  background: linear-gradient(135deg, var(--accent), #a78bfa);
   display: flex;
   align-items: center;
   justify-content: center;
   color: #fff;
   font-weight: 700;
-  font-size: 14px;
+  font-size: 0.875rem;
   flex-shrink: 0;
 }
 
@@ -135,8 +138,8 @@
 }
 
 .user-name {
-  color: #fff;
-  font-size: 13px;
+  color: var(--text-primary);
+  font-size: 0.8125rem;
   font-weight: 600;
   white-space: nowrap;
   overflow: hidden;
@@ -144,47 +147,35 @@
 }
 
 .user-email {
-  color: #6b6b80;
-  font-size: 11px;
+  color: var(--text-muted);
+  font-size: 0.6875rem;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .logout-btn {
-  background: none;
-  border: none;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
   cursor: pointer;
-  font-size: 16px;
-  padding: 6px;
-  border-radius: 8px;
-  transition: background 0.15s;
+  font-size: 0.75rem;
+  font-weight: 600;
+  color: var(--text-muted);
+  padding: 8px 10px;
+  border-radius: var(--radius-sm);
+  transition: all 0.15s;
+  width: 100%;
+  text-align: center;
 }
 
 .logout-btn:hover {
-  background: rgba(239, 68, 68, 0.15);
+  background: rgba(239, 68, 68, 0.1);
+  border-color: rgba(239, 68, 68, 0.25);
+  color: #f87171;
 }
 
-/* ==================== Main ==================== */
 .main-content {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-}
-
-.main-content::-webkit-scrollbar {
-  width: 6px;
-}
-
-.main-content::-webkit-scrollbar-track {
-  background: transparent;
-}
-
-.main-content::-webkit-scrollbar-thumb {
-  background: rgba(255, 255, 255, 0.1);
-  border-radius: 3px;
-}
-
-.main-content::-webkit-scrollbar-thumb:hover {
-  background: rgba(255, 255, 255, 0.2);
 }

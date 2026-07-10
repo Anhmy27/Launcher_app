@@ -2,8 +2,10 @@
 
 import { useEffect, useState } from "react";
 import { apiClient, User } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 export default function UsersPage() {
+  const { t } = useLocale();
   const [users, setUsers] = useState<User[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -17,8 +19,9 @@ export default function UsersPage() {
     try {
       const data = await apiClient.getUsers();
       setUsers(data);
+      setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load users");
+      setError(err instanceof Error ? err.message : t.failedLoadUsers);
     } finally {
       setIsLoading(false);
     }
@@ -29,77 +32,56 @@ export default function UsersPage() {
       await apiClient.toggleUserActive(id);
       await loadUsers();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update user");
+      setError(err instanceof Error ? err.message : t.failedUpdateUser);
     }
   };
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-8">Users</h1>
+      <h1 className="admin-page-title">{t.usersTitle}</h1>
+      <p className="admin-page-subtitle">{t.usersSubtitle}</p>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
-        </div>
-      )}
+      {error && <div className="admin-alert-error">{error}</div>}
 
-      <div className="bg-white rounded-lg shadow overflow-hidden">
+      <div className="admin-table-wrap">
         {isLoading ? (
-          <div className="p-6 text-center">Loading users...</div>
+          <div className="admin-empty">{t.loadingUsers}</div>
         ) : users.length === 0 ? (
-          <div className="p-6 text-center text-gray-500">No users</div>
+          <div className="admin-empty">{t.noUsers}</div>
         ) : (
-          <table className="w-full">
-            <thead className="bg-gray-50 border-b">
+          <table className="admin-table">
+            <thead>
               <tr>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Email
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Full Name
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Role
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Status
-                </th>
-                <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                  Actions
-                </th>
+                <th>{t.email}</th>
+                <th>{t.fullName}</th>
+                <th>{t.role}</th>
+                <th>{t.status}</th>
+                <th>{t.actions}</th>
               </tr>
             </thead>
-            <tbody className="divide-y">
+            <tbody>
               {users.map((user) => (
-                <tr key={user.id} className="hover:bg-gray-50">
-                  <td className="px-6 py-4">{user.email}</td>
-                  <td className="px-6 py-4">{user.full_name}</td>
-                  <td className="px-6 py-4">
-                    <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded text-sm font-medium">
+                <tr key={user.id}>
+                  <td>{user.email}</td>
+                  <td>{user.full_name}</td>
+                  <td>
+                    <span className="admin-badge admin-badge-blue">
                       {user.role.toUpperCase()}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td>
                     <span
-                      className={`px-3 py-1 rounded text-sm font-medium ${
-                        user.is_active
-                          ? "bg-green-100 text-green-800"
-                          : "bg-red-100 text-red-800"
-                      }`}
+                      className={`admin-badge ${user.is_active ? "admin-badge-green" : "admin-badge-red"}`}
                     >
-                      {user.is_active ? "Active" : "Banned"}
+                      {user.is_active ? t.active : t.banned}
                     </span>
                   </td>
-                  <td className="px-6 py-4">
+                  <td>
                     <button
                       onClick={() => handleToggleActive(user.id)}
-                      className={`px-3 py-1 rounded text-sm font-medium ${
-                        user.is_active
-                          ? "bg-red-100 text-red-700 hover:bg-red-200"
-                          : "bg-green-100 text-green-700 hover:bg-green-200"
-                      }`}
+                      className={user.is_active ? "admin-btn-danger" : "admin-btn-success"}
                     >
-                      {user.is_active ? "Ban" : "Unban"}
+                      {user.is_active ? t.ban : t.unban}
                     </button>
                   </td>
                 </tr>

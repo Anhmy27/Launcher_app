@@ -131,7 +131,7 @@ async function clearStaleInstallIfMismatch(
   return false;
 }
 
-async function recordUrlOpen(app: App, version: AppVersion): Promise<void> {
+async function recordUrlOpen(_app: App, version: AppVersion): Promise<void> {
   let serverDownloadId: string | undefined;
   try {
     const download = await apiClient.startDownload(version.id);

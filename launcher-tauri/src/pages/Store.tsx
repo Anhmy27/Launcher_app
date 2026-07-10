@@ -2,7 +2,8 @@ import { useState, useEffect } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion } from "../lib/api";
 import downloadManager from "../lib/downloadManager";
-import { distributionLabel, isUrlVersion } from "../lib/distribution";
+import { isUrlVersion } from "../lib/distribution";
+import { useLocale } from "../context/LocaleContext";
 import "./Store.css";
 
 interface StoreProps {
@@ -10,6 +11,7 @@ interface StoreProps {
 }
 
 export default function Store({ onNavigate }: StoreProps) {
+  const { locale, t, distLabel } = useLocale();
   const [apps, setApps] = useState<App[]>([]);
   const [selectedApp, setSelectedApp] = useState<App | null>(null);
   const [versions, setVersions] = useState<AppVersion[]>([]);
@@ -48,27 +50,27 @@ export default function Store({ onNavigate }: StoreProps) {
     try {
       const latestVersion = versions[0];
       if (!latestVersion) {
-        throw new Error("No version available");
+        throw new Error(t.noVersion);
       }
       await apiClient.installApp(app.id);
 
       if (isUrlVersion(latestVersion)) {
         await downloadManager.openUrlApp(app, latestVersion);
-        setMessage(`${app.name} added — opening link...`);
+        setMessage(`${app.name} ${t.addedOpening}`);
       } else {
-        setMessage(`${app.name} added to your library!`);
+        setMessage(`${app.name} ${t.addedToLibrary}`);
       }
 
       setTimeout(() => onNavigate("library"), 1500);
     } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : "Failed to install");
+      setMessage(err instanceof Error ? err.message : t.failedAdd);
     } finally {
       setInstalling(null);
     }
   };
 
   const formatSize = (bytes: number, version?: AppVersion) => {
-    if (isUrlVersion(version)) return "Web link";
+    if (isUrlVersion(version)) return t.webLink;
     if (bytes === 0) return "0 B";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
@@ -80,7 +82,7 @@ export default function Store({ onNavigate }: StoreProps) {
     return (
       <div className="store-loading">
         <div className="spinner" />
-        <p>Loading store...</p>
+        <p>{t.loadingStore}</p>
       </div>
     );
   }
@@ -91,7 +93,7 @@ export default function Store({ onNavigate }: StoreProps) {
     return (
       <div className="store-detail">
         <button className="back-btn" onClick={() => setSelectedApp(null)}>
-          ← Back to Store
+          {t.backToStore}
         </button>
 
         <div className="detail-header">
@@ -99,20 +101,20 @@ export default function Store({ onNavigate }: StoreProps) {
             {selectedApp.icon_url ? (
               <img src={selectedApp.icon_url} alt={selectedApp.name} />
             ) : (
-              <span className="icon-placeholder">🎮</span>
+              <span className="icon-placeholder">📦</span>
             )}
           </div>
           <div className="detail-info">
             <h1>{selectedApp.name}</h1>
             <span className="detail-category">{selectedApp.category}</span>
             <p className="detail-desc">
-              {selectedApp.description || "No description available."}
+              {selectedApp.description || t.noDescription}
             </p>
             {latestVersion && (
               <div className="detail-meta">
-                <span>Version: {latestVersion.version_name}</span>
-                <span>Type: {distributionLabel(latestVersion)}</span>
-                <span>Size: {formatSize(latestVersion.file_size, latestVersion)}</span>
+                <span>{t.version}: {latestVersion.version_name}</span>
+                <span>{t.type}: {distLabel(latestVersion.distribution_type)}</span>
+                <span>{t.size}: {formatSize(latestVersion.file_size, latestVersion)}</span>
                 {isUrl && latestVersion.launch_url && (
                   <span>URL: {latestVersion.launch_url}</span>
                 )}
@@ -130,30 +132,30 @@ export default function Store({ onNavigate }: StoreProps) {
             disabled={installing === selectedApp.id}
           >
             {installing === selectedApp.id
-              ? "Adding..."
+              ? t.adding
               : isUrl
-                ? "+ Add & Open"
-                : "+ Add to Library"}
+                ? t.addAndOpen
+                : t.addToLibrary}
           </button>
         </div>
 
         {versions.length > 0 && (
           <div className="versions-section">
-            <h3>Available Versions</h3>
+            <h3>{t.availableVersions}</h3>
             {versions.map((v) => (
               <div key={v.id} className="version-row">
                 <div>
                   <strong>{v.version_name}</strong>
                   {v.is_required && (
-                    <span className="required-badge"> · Required</span>
+                    <span className="required-badge"> · {t.required}</span>
                   )}
                   <span className="version-size">
-                    {formatSize(v.file_size, v)} · {distributionLabel(v)}
+                    {formatSize(v.file_size, v)} · {distLabel(v.distribution_type)}
                   </span>
                 </div>
                 <span className="version-date">
                   {v.release_date
-                    ? new Date(v.release_date).toLocaleDateString()
+                    ? new Date(v.release_date).toLocaleDateString(locale === "vi" ? "vi-VN" : "en-US")
                     : ""}
                 </span>
               </div>
@@ -167,8 +169,8 @@ export default function Store({ onNavigate }: StoreProps) {
   return (
     <div className="store-page">
       <div className="store-header">
-        <h2>🏪 Store</h2>
-        <p>Browse and discover applications</p>
+        <h2>{t.storeTitle}</h2>
+        <p>{t.storeSubtitle}</p>
       </div>
 
       {message && <div className="store-message">{message}</div>}
@@ -176,7 +178,7 @@ export default function Store({ onNavigate }: StoreProps) {
       {apps.length === 0 ? (
         <div className="store-empty">
           <span className="empty-icon">📦</span>
-          <p>No applications available yet.</p>
+          <p>{t.noApps}</p>
         </div>
       ) : (
         <div className="app-grid">
@@ -190,7 +192,7 @@ export default function Store({ onNavigate }: StoreProps) {
                 {app.icon_url ? (
                   <img src={app.icon_url} alt={app.name} />
                 ) : (
-                  <span className="icon-placeholder">🎮</span>
+                  <span className="icon-placeholder">📦</span>
                 )}
               </div>
               <div className="app-card-info">
@@ -201,7 +203,7 @@ export default function Store({ onNavigate }: StoreProps) {
                     ? app.description.length > 60
                       ? app.description.slice(0, 60) + "..."
                       : app.description
-                    : "No description"}
+                    : t.noDescription}
                 </p>
               </div>
             </div>

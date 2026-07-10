@@ -1,7 +1,9 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import { apiClient } from "@/lib/api";
+import { useLocale } from "@/lib/locale-context";
 
 interface App {
   id: string;
@@ -14,6 +16,7 @@ interface App {
 }
 
 export default function AppsPage() {
+  const { t } = useLocale();
   const [apps, setApps] = useState<App[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState("");
@@ -33,8 +36,9 @@ export default function AppsPage() {
     try {
       const data = await apiClient.getApps();
       setApps(data);
+      setError("");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load apps");
+      setError(err instanceof Error ? err.message : t.failedLoadApps);
     } finally {
       setIsLoading(false);
     }
@@ -53,20 +57,20 @@ export default function AppsPage() {
       setNewApp({ name: "", description: "", category: "" });
       await loadApps();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create app");
+      setError(err instanceof Error ? err.message : t.failedCreate);
     } finally {
       setIsCreating(false);
     }
   };
 
   const handleDeleteApp = async (id: string) => {
-    if (!confirm("Are you sure?")) return;
+    if (!confirm(t.confirmDelete)) return;
 
     try {
       await apiClient.deleteApp(id);
       await loadApps();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to delete app");
+      setError(err instanceof Error ? err.message : t.failedDelete);
     }
   };
 
@@ -75,136 +79,112 @@ export default function AppsPage() {
       await apiClient.updateApp(id, { is_published: !isPublished });
       await loadApps();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update app");
+      setError(err instanceof Error ? err.message : t.failedUpdate);
     }
   };
 
   return (
     <div>
-      <h1 className="text-3xl font-bold mb-8">Applications</h1>
+      <h1 className="admin-page-title">{t.appsTitle}</h1>
+      <p className="admin-page-subtitle">{t.appsSubtitle}</p>
 
-      {error && (
-        <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
-          {error}
-        </div>
-      )}
+      {error && <div className="admin-alert-error">{error}</div>}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Create App Form */}
-        <div className="bg-white p-6 rounded-lg shadow">
-          <h2 className="text-xl font-bold mb-4">Create New App</h2>
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="admin-card">
+          <h2 className="admin-card-title">{t.createNewApp}</h2>
           <form onSubmit={handleCreateApp} className="space-y-4">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                App Name
-              </label>
+              <label className="admin-label">{t.appNameLabel}</label>
               <input
                 type="text"
                 value={newApp.name}
                 onChange={(e) => setNewApp({ ...newApp, name: e.target.value })}
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="admin-input"
                 required
                 disabled={isCreating}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Description
-              </label>
+              <label className="admin-label">{t.description}</label>
               <textarea
                 value={newApp.description}
                 onChange={(e) =>
                   setNewApp({ ...newApp, description: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                className="admin-input resize-none"
                 rows={3}
                 disabled={isCreating}
               />
             </div>
 
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Category
-              </label>
+              <label className="admin-label">{t.category}</label>
               <input
                 type="text"
                 value={newApp.category}
                 onChange={(e) =>
                   setNewApp({ ...newApp, category: e.target.value })
                 }
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
-                placeholder="game, tool, utility, etc."
+                className="admin-input"
+                placeholder={t.categoryPlaceholder}
                 disabled={isCreating}
               />
             </div>
             <button
               type="submit"
               disabled={isCreating}
-              className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
+              className="admin-btn-primary w-full"
             >
-              {isCreating ? "Creating..." : "Create App"}
+              {isCreating ? t.creating : t.createApp}
             </button>
           </form>
         </div>
 
-        {/* Apps List */}
         <div className="lg:col-span-2">
-          <div className="bg-white rounded-lg shadow overflow-hidden">
+          <div className="admin-table-wrap">
             {isLoading ? (
-              <div className="p-6 text-center">Loading apps...</div>
+              <div className="admin-empty">{t.loadingApps}</div>
             ) : apps.length === 0 ? (
-              <div className="p-6 text-center text-gray-500">No apps yet</div>
+              <div className="admin-empty">{t.noApps}</div>
             ) : (
-              <table className="w-full">
-                <thead className="bg-gray-50 border-b">
+              <table className="admin-table">
+                <thead>
                   <tr>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Name
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Category
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Status
-                    </th>
-                    <th className="px-6 py-3 text-left text-sm font-medium text-gray-700">
-                      Actions
-                    </th>
+                    <th>{t.name}</th>
+                    <th>{t.category}</th>
+                    <th>{t.status}</th>
+                    <th>{t.actions}</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y">
+                <tbody>
                   {apps.map((app) => (
-                    <tr key={app.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4">
-                        <a
-                          href={`/dashboard/apps/${app.id}`}
-                          className="text-blue-600 hover:underline font-semibold"
-                        >
+                    <tr key={app.id}>
+                      <td>
+                        <Link href={`/dashboard/apps/${app.id}`} className="admin-link">
                           {app.name}
-                        </a>
+                        </Link>
                       </td>
-                      <td className="px-6 py-4 text-sm">{app.category}</td>
-                      <td className="px-6 py-4">
+                      <td style={{ color: "var(--admin-text-muted)" }}>
+                        {app.category || "—"}
+                      </td>
+                      <td>
                         <button
                           onClick={() =>
                             handleTogglePublish(app.id, app.is_published)
                           }
-                          className={`px-3 py-1 rounded text-sm font-medium ${
-                            app.is_published
-                              ? "bg-green-100 text-green-800"
-                              : "bg-gray-100 text-gray-800"
-                          }`}
+                          className={`admin-badge ${app.is_published ? "admin-badge-green" : "admin-badge-gray"}`}
                         >
-                          {app.is_published ? "Published" : "Draft"}
+                          {app.is_published ? t.publishedStatus : t.draft}
                         </button>
                       </td>
-                      <td className="px-6 py-4 space-x-2">
+                      <td>
                         <button
                           onClick={() => handleDeleteApp(app.id)}
-                          className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+                          className="admin-btn-danger"
                         >
-                          Delete
+                          {t.delete}
                         </button>
                       </td>
                     </tr>
