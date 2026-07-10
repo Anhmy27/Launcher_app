@@ -144,6 +144,9 @@ export default function Store({ onNavigate }: StoreProps) {
               <div key={v.id} className="version-row">
                 <div>
                   <strong>{v.version_name}</strong>
+                  {v.is_required && (
+                    <span className="required-badge"> · Required</span>
+                  )}
                   <span className="version-size">
                     {formatSize(v.file_size, v)} · {distributionLabel(v)}
                   </span>

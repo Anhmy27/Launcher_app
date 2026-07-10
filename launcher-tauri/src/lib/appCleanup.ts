@@ -4,10 +4,12 @@ import type { Manifest } from './downloadManager';
 import { tauriCommands } from './tauri';
 import {
   INSTALL_STATE_FILE,
+  hasDistributionMismatch,
   isInstallerExitSuccess,
   isInstallerVersion,
   isUrlVersion,
   toLocalPath,
+  type DistributionType,
   type InstallState,
 } from './distribution';
 
@@ -22,6 +24,38 @@ export function canSystemUninstall(version?: Partial<AppVersion>): boolean {
   if (kind === 'msi') return Boolean(version.installer_product_code?.trim());
   if (kind === 'exe') return Boolean(version.installer_uninstall_path?.trim());
   return false;
+}
+
+/** Human-readable note when uninstall only clears launcher cache. */
+export function getPartialUninstallNote(version?: Partial<AppVersion>): string | null {
+  if (!version || version.distribution_type !== 'installer') return null;
+  if (canSystemUninstall(version)) return null;
+  const kind = (version.installer_kind || '').toLowerCase();
+  if (kind === 'exe') {
+    return 'EXE installer has no uninstall path — only launcher cache will be removed.';
+  }
+  if (kind === 'msi') {
+    return 'MSI product code missing — only launcher cache will be removed.';
+  }
+  return 'System uninstall unavailable — only launcher cache will be removed.';
+}
+
+/** Read local distribution type from manifest or install-state. */
+export async function readLocalDistributionType(
+  appSlug: string,
+): Promise<DistributionType | null> {
+  const meta = await readLocalInstallMetadata(appSlug);
+  return meta?.distribution_type ?? null;
+}
+
+/** Remove stale local install when distribution type changed between versions. */
+export async function clearStaleInstallIfMismatch(
+  appSlug: string,
+  latestType: DistributionType,
+): Promise<boolean> {
+  const localType = await readLocalDistributionType(appSlug);
+  if (!hasDistributionMismatch(localType, latestType)) return false;
+  return deleteLocalAppFiles(appSlug);
 }
 
 /** Read uninstall metadata from local manifest / install-state (installed version). */
@@ -39,7 +73,7 @@ export async function readLocalInstallMetadata(
         id: manifest.version_id,
         version_code: manifest.version_code,
         version_name: manifest.version_name,
-        distribution_type: manifest.distribution_type || 'installer',
+        distribution_type: manifest.distribution_type || 'portable',
         installer_kind: manifest.installer_kind,
         installer_product_code: manifest.installer_product_code,
         installer_uninstall_path: manifest.installer_uninstall_path,

@@ -4,10 +4,13 @@ import { tauriCommands } from './tauri';
 import { open as openExternal } from '@tauri-apps/plugin-shell';
 import {
   INSTALL_STATE_FILE,
+  getDistributionType,
+  hasDistributionMismatch,
   isInstallerExitSuccess,
   isInstallerVersion,
   isUrlVersion,
   toLocalPath,
+  type DistributionType,
   type InstallState,
 } from './distribution';
 
@@ -87,6 +90,72 @@ async function syncDeviceVersion(appId: string, versionCode: number, versionName
   }
 }
 
+async function readLocalDistributionTypeFromDir(installDir: string): Promise<DistributionType | null> {
+  const manifestPath = toLocalPath(installDir, 'manifest.json');
+  const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
+
+  try {
+    const manifestStr = await tauriCommands.readTextFile(manifestPath);
+    const manifest = JSON.parse(manifestStr) as Manifest;
+    return manifest.distribution_type || 'portable';
+  } catch {
+    try {
+      const exists = await tauriCommands.checkAppExists(installStatePath);
+      if (!exists) return null;
+      const stateStr = await tauriCommands.readTextFile(installStatePath);
+      const state = JSON.parse(stateStr) as InstallState;
+      return state.distribution_type || 'installer';
+    } catch {
+      return null;
+    }
+  }
+}
+
+async function clearStaleInstallIfMismatch(
+  appSlug: string,
+  latestType: DistributionType,
+): Promise<boolean> {
+  try {
+    const installDir = await tauriCommands.getAppDataDir(appSlug);
+    const localType = await readLocalDistributionTypeFromDir(installDir);
+    if (!hasDistributionMismatch(localType, latestType)) return false;
+
+    const exists = await tauriCommands.checkAppExists(installDir);
+    if (exists) {
+      await tauriCommands.deleteDirectory(installDir);
+      return true;
+    }
+  } catch {
+    // ignore
+  }
+  return false;
+}
+
+async function recordUrlOpen(app: App, version: AppVersion): Promise<void> {
+  let serverDownloadId: string | undefined;
+  try {
+    const download = await apiClient.startDownload(version.id);
+    serverDownloadId = download.id;
+  } catch {
+    return;
+  }
+
+  const detail = JSON.stringify({
+    stage: 'completed',
+    file_name: version.launch_url || 'Opened URL',
+    progress: 100,
+    downloaded_files: 0,
+    total_files: 0,
+    download_path: '',
+  });
+
+  try {
+    await apiClient.updateDownloadStatus(serverDownloadId, 'completed', 0, detail);
+  } catch {
+    // ignore
+  }
+}
+
 async function readLocalInstallState(installDir: string): Promise<InstallState | null> {
   const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
   try {
@@ -134,6 +203,7 @@ class DownloadManager {
     }
     await openExternal(version.launch_url);
     await syncDeviceVersion(app.id, version.version_code, version.version_name);
+    await recordUrlOpen(app, version);
   }
 
   async startDownload(app: App, version: AppVersion) {
@@ -204,6 +274,8 @@ class DownloadManager {
       const manifest: Manifest = await manifestResp.json();
 
       const installDir = await tauriCommands.getAppDataDir(app.slug);
+      const latestDist = getDistributionType(version);
+      await clearStaleInstallIfMismatch(app.slug, latestDist);
       await tauriCommands.ensureDirExists(installDir);
       const localManifestPath = toLocalPath(installDir, 'manifest.json');
 

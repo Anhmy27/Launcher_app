@@ -55,7 +55,8 @@ export default function Layout() {
     (d) =>
       d.status === "downloading" ||
       d.status === "fetching_manifest" ||
-      d.status === "comparing",
+      d.status === "comparing" ||
+      d.status === "running_installer",
   ).length;
 
   return (

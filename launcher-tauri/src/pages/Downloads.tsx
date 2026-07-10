@@ -54,6 +54,10 @@ function statusLabel(
     return "Running installer...";
   }
 
+  if (detail.file_name?.startsWith("http://") || detail.file_name?.startsWith("https://")) {
+    return "🔗 Opened web link";
+  }
+
   if (item.download_status === "completed") {
     return "✅ Installed";
   }
