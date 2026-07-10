@@ -3,6 +3,11 @@
 import { useEffect, useState } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { apiClient } from "@/lib/api";
+import {
+  nextVersionCode,
+  validateUploadForm,
+  validateVersionForRelease,
+} from "@/lib/versionValidation";
 
 interface App {
   id: string;
@@ -57,6 +62,24 @@ export default function AppDetailPage() {
   const [installerProductCode, setInstallerProductCode] = useState("");
   const [installerUninstallPath, setInstallerUninstallPath] = useState("");
   const [installerUninstallArgs, setInstallerUninstallArgs] = useState("");
+  const [fileInputKey, setFileInputKey] = useState(0);
+  const [releasingId, setReleasingId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
+
+  const uploadValidationError = validateUploadForm({
+    distributionType,
+    uploadingFile,
+    launchUrl,
+    entryPoint,
+    installerLaunchPath,
+    installerProductCode,
+  });
+
+  const isMsiUpload = uploadingFile?.name.toLowerCase().endsWith(".msi") ?? false;
+  const uploadDisabled =
+    isUploading ||
+    Boolean(uploadValidationError) ||
+    (distributionType === "installer" && isMsiUpload && !installerProductCode.trim());
 
   useEffect(() => {
     loadAppData();
@@ -70,6 +93,7 @@ export default function AppDetailPage() {
       ]);
       setApp(appData);
       setVersions(versionsData || []);
+      setError("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to load app");
     } finally {
@@ -79,33 +103,30 @@ export default function AppDetailPage() {
 
   const handleUploadVersion = async (e: React.FormEvent) => {
     e.preventDefault();
-    if (distributionType !== "url" && !uploadingFile) return;
-    if (distributionType === "url" && !launchUrl.trim()) return;
-    if (distributionType === "installer" && !installerLaunchPath.trim()) {
-      setError("Launch path after install is required for installer versions");
-      return;
-    }
-    const isMsiUpload = uploadingFile?.name.toLowerCase().endsWith(".msi");
-    if (distributionType === "installer" && isMsiUpload && !installerProductCode.trim()) {
-      setError("MSI Product Code is required for MSI installers (used for uninstall)");
+    const validationError = validateUploadForm({
+      distributionType,
+      uploadingFile,
+      launchUrl,
+      entryPoint,
+      installerLaunchPath,
+      installerProductCode,
+    });
+    if (validationError) {
+      setError(validationError);
       return;
     }
 
     setIsUploading(true);
+    setError("");
     try {
+      const newCode = nextVersionCode(versions);
       const formData = new FormData();
       formData.append("distribution_type", distributionType);
       if (distributionType !== "url" && uploadingFile) {
         formData.append("file", uploadingFile);
       }
-      formData.append(
-        "version_code",
-        String(Math.max(0, ...versions.map((v) => v.version_code)) + 1),
-      );
-      formData.append(
-        "version_name",
-        `v${Math.max(0, ...versions.map((v) => v.version_code)) + 1}`,
-      );
+      formData.append("version_code", String(newCode));
+      formData.append("version_name", `v${newCode}`);
       formData.append("is_required", String(isRequired));
       if (entryPoint.trim()) {
         formData.append("entry_point", entryPoint.trim());
@@ -131,6 +152,7 @@ export default function AppDetailPage() {
 
       await apiClient.uploadVersion(appId, formData);
       setUploadingFile(null);
+      setFileInputKey((k) => k + 1);
       setIsRequired(false);
       setEntryPoint("");
       setDistributionType("portable");
@@ -148,25 +170,39 @@ export default function AppDetailPage() {
     }
   };
 
-  const handleReleaseVersion = async (versionId: string) => {
+  const handleReleaseVersion = async (version: AppVersion) => {
+    const validationError = validateVersionForRelease(version);
+    if (validationError) {
+      setError(validationError);
+      return;
+    }
+
+    setReleasingId(version.id);
+    setError("");
     try {
-      await apiClient.releaseVersion(appId, versionId);
+      await apiClient.releaseVersion(appId, version.id);
       await loadAppData();
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to release version",
       );
+    } finally {
+      setReleasingId(null);
     }
   };
 
   const handleDeleteVersion = async (versionId: string) => {
     if (!confirm("Delete this version?")) return;
 
+    setDeletingId(versionId);
+    setError("");
     try {
       await apiClient.deleteVersion(appId, versionId);
       await loadAppData();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete version");
+    } finally {
+      setDeletingId(null);
     }
   };
 
@@ -269,34 +305,36 @@ export default function AppDetailPage() {
               </div>
             )}
 
-            <div>
+            <div style={{ display: distributionType === "url" ? "none" : "block" }}>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Build File (.exe, .msi, .zip, etc.)
+                Build File (.exe, .msi, .zip)
               </label>
               <input
+                key={fileInputKey}
                 type="file"
                 onChange={(e) => setUploadingFile(e.target.files?.[0] || null)}
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg"
                 disabled={isUploading}
-                style={{ display: distributionType === "url" ? "none" : "block" }}
               />
             </div>
-            <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">
-                Entry Point (optional)
-              </label>
-              <input
-                type="text"
-                value={entryPoint}
-                onChange={(e) => setEntryPoint(e.target.value)}
-                placeholder="e.g., app.exe (auto-detected if empty)"
-                className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
-                disabled={isUploading}
-              />
-              <p className="text-xs text-gray-500 mt-1">
-                Main executable inside the build. Auto-detected for .exe/.msi.
-              </p>
-            </div>
+            {distributionType !== "url" && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Entry Point (optional)
+                </label>
+                <input
+                  type="text"
+                  value={entryPoint}
+                  onChange={(e) => setEntryPoint(e.target.value)}
+                  placeholder="e.g., app.exe (auto-detected if empty)"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
+                  disabled={isUploading}
+                />
+                <p className="text-xs text-gray-500 mt-1">
+                  Main executable inside the build. Auto-detected for .exe/.msi.
+                </p>
+              </div>
+            )}
 
             {distributionType === "installer" && (
               <>
@@ -324,10 +362,9 @@ export default function AppDetailPage() {
                     placeholder="e.g., C:\\Program Files\\MyApp\\MyApp.exe"
                     className="w-full px-3 py-2 border border-gray-300 rounded-lg text-sm"
                     disabled={isUploading}
-                    required
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Absolute path to the app executable after silent install. Required for launch.
+                    Absolute path to the app executable after silent install.
                   </p>
                 </div>
                 <div>
@@ -343,7 +380,7 @@ export default function AppDetailPage() {
                     disabled={isUploading}
                   />
                   <p className="text-xs text-gray-500 mt-1">
-                    Used for msiexec /x uninstall. Find in registry or MSI properties.
+                    Used for msiexec /x uninstall.
                   </p>
                 </div>
                 <div>
@@ -389,14 +426,12 @@ export default function AppDetailPage() {
                 Users must update to this version
               </p>
             </div>{" "}
+            {uploadValidationError && (
+              <p className="text-sm text-amber-700">{uploadValidationError}</p>
+            )}
             <button
               type="submit"
-                disabled={
-                isUploading ||
-                (distributionType !== "url" && !uploadingFile) ||
-                (distributionType === "url" && !launchUrl.trim()) ||
-                (distributionType === "installer" && !installerLaunchPath.trim())
-              }
+              disabled={uploadDisabled}
               className="w-full px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:bg-gray-400"
             >
               {isUploading ? "Uploading..." : "Upload Version"}
@@ -489,7 +524,22 @@ export default function AppDetailPage() {
                       )}
                     </td>
                     <td className="px-6 py-4 text-sm">
-                      {v.distribution_type || "portable"}
+                      <div>{v.distribution_type || "portable"}</div>
+                      {v.distribution_type === "url" && v.launch_url && (
+                        <div className="text-xs text-gray-500 truncate max-w-[200px]" title={v.launch_url}>
+                          {v.launch_url}
+                        </div>
+                      )}
+                      {v.distribution_type === "installer" && (
+                        <div className="text-xs text-gray-500 space-y-0.5">
+                          {v.installer_kind && <div>Kind: {v.installer_kind}</div>}
+                          {v.installer_launch_path && (
+                            <div className="truncate max-w-[200px]" title={v.installer_launch_path}>
+                              Launch: {v.installer_launch_path}
+                            </div>
+                          )}
+                        </div>
+                      )}
                     </td>
                     <td className="px-6 py-4 font-mono text-xs">
                       {v.file_hash ? `${v.file_hash.substring(0, 16)}...` : "-"}
@@ -497,17 +547,19 @@ export default function AppDetailPage() {
                     <td className="px-6 py-4 space-x-2">
                       {!v.is_released && (
                         <button
-                          onClick={() => handleReleaseVersion(v.id)}
-                          className="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-sm"
+                          onClick={() => handleReleaseVersion(v)}
+                          disabled={releasingId === v.id || deletingId === v.id}
+                          className="px-3 py-1 bg-green-100 text-green-700 rounded hover:bg-green-200 text-sm disabled:opacity-50"
                         >
-                          Release
+                          {releasingId === v.id ? "Releasing..." : "Release"}
                         </button>
                       )}
                       <button
                         onClick={() => handleDeleteVersion(v.id)}
-                        className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm"
+                        disabled={releasingId === v.id || deletingId === v.id}
+                        className="px-3 py-1 bg-red-100 text-red-700 rounded hover:bg-red-200 text-sm disabled:opacity-50"
                       >
-                        Delete
+                        {deletingId === v.id ? "Deleting..." : "Delete"}
                       </button>
                     </td>
                   </tr>

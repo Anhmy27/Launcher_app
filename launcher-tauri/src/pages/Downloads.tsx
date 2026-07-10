@@ -8,6 +8,7 @@ interface PersistedProgressDetail {
     | "fetching_manifest"
     | "comparing"
     | "downloading"
+    | "running_installer"
     | "completed"
     | "failed";
   file_name?: string;
@@ -47,6 +48,10 @@ function statusLabel(
     const total = detail.total_files ?? "?";
     const progress = Number(detail.progress ?? 0).toFixed(0);
     return `Installing... ${downloaded}/${total} files (${progress}%)`;
+  }
+
+  if (detail.stage === "running_installer") {
+    return "Running installer...";
   }
 
   if (item.download_status === "completed") {

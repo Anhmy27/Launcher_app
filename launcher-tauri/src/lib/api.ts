@@ -105,7 +105,7 @@ class ApiClient {
 
   // ==================== Apps ====================
   async getApps(): Promise<App[]> {
-    return this.request<App[]>('/apps');
+    return this.request<App[]>('/apps?published=true');
   }
 
   async getAppById(id: string): Promise<App> {

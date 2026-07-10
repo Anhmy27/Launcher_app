@@ -65,14 +65,34 @@ class ApiClient {
       headers,
     });
 
+    const parseBody = async () => {
+      const text = await response.text();
+      if (!text) return null;
+      try {
+        return JSON.parse(text);
+      } catch {
+        throw new Error(
+          response.ok
+            ? "Invalid JSON response from server"
+            : `HTTP ${response.status}: ${text.slice(0, 200)}`,
+        );
+      }
+    };
+
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || `HTTP ${response.status}`);
+      const error = await parseBody();
+      throw new Error(
+        (error && typeof error === "object" && "error" in error
+          ? String((error as { error?: string }).error)
+          : null) || `HTTP ${response.status}`,
+      );
     }
 
-    const json = await response.json();
-    // Backend returns { success: true, data: {...} }, unwrap it
-    return json.data || json;
+    const json = await parseBody();
+    if (json && typeof json === "object" && "data" in json) {
+      return (json as { data: unknown }).data;
+    }
+    return json;
   }
 
   // Auth endpoints
@@ -159,17 +179,27 @@ class ApiClient {
     });
 
     if (!response.ok) {
-      let message = 'Failed to upload version';
+      let message = `HTTP ${response.status}`;
       try {
-        const errJson = await response.json();
-        message = errJson?.error || message;
+        const text = await response.text();
+        if (text) {
+          const errJson = JSON.parse(text);
+          message = errJson?.error || message;
+        }
       } catch {
         // ignore
       }
       throw new Error(message);
     }
 
-    return response.json();
+    const text = await response.text();
+    if (!text) return null;
+    try {
+      const json = JSON.parse(text);
+      return json.data ?? json;
+    } catch {
+      throw new Error("Invalid JSON response from server");
+    }
   }
 
   async releaseVersion(appId: string, versionId: string) {

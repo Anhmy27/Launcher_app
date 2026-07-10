@@ -44,10 +44,24 @@ type DownloadHistoryItem struct {
 func (h *DownloadHandler) Start(c *gin.Context) {
 	appVersionID := c.Param("appVersionId")
 
-	// Check version exists
+	// Check version exists and is released
 	var version models.AppVersion
 	if err := database.DB.First(&version, "id = ?", appVersionID).Error; err != nil {
 		utils.Error(c, http.StatusNotFound, "Version not found")
+		return
+	}
+	if !version.IsReleased {
+		utils.Error(c, http.StatusBadRequest, "Version is not released")
+		return
+	}
+
+	var app models.Application
+	if err := database.DB.First(&app, "id = ?", version.AppID).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, "App not found")
+		return
+	}
+	if !app.IsPublished {
+		utils.Error(c, http.StatusBadRequest, "App is not published")
 		return
 	}
 

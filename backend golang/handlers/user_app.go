@@ -45,10 +45,14 @@ func (h *UserAppHandler) Install(c *gin.Context) {
 		return
 	}
 
-	// Check app exists
+	// Check app exists and is published
 	var app models.Application
 	if err := database.DB.First(&app, "id = ?", appID).Error; err != nil {
 		utils.Error(c, http.StatusNotFound, "App not found")
+		return
+	}
+	if !app.IsPublished {
+		utils.Error(c, http.StatusBadRequest, "App is not published")
 		return
 	}
 

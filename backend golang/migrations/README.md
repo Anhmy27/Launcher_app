@@ -56,8 +56,9 @@ migrate create -ext sql -dir migrations -seq migration_name
 - `000014_add_progress_detail_to_downloads.up.sql` / `.down.sql`
 - `000015_add_distribution_fields_to_app_versions.up.sql` / `.down.sql`
 - `000016_add_installer_uninstall_fields.up.sql` / `.down.sql`
+- `000017_unique_app_version_code.up.sql` / `.down.sql`
 
-Current schema version: `16`
+Current schema version: `17`
 
 ## Default Admin
 

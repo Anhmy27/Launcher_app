@@ -25,6 +25,8 @@ import (
 	"github.com/google/uuid"
 )
 
+const maxVersionUploadBytes = 1 << 30 // 1 GiB
+
 // ---------------------------------------------------------------------------
 // Manifest types
 // ---------------------------------------------------------------------------
@@ -119,6 +121,23 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		return
 	}
 
+	if req.VersionCode <= 0 {
+		utils.Error(c, http.StatusBadRequest, "version_code must be greater than 0")
+		return
+	}
+
+	var existingCount int64
+	if err := database.DB.Model(&models.AppVersion{}).
+		Where("app_id = ? AND version_code = ?", appID, req.VersionCode).
+		Count(&existingCount).Error; err != nil {
+		utils.Error(c, http.StatusInternalServerError, "Failed to validate version_code")
+		return
+	}
+	if existingCount > 0 {
+		utils.Error(c, http.StatusConflict, "version_code already exists for this app")
+		return
+	}
+
 	// URL-only release: no file upload, no manifest
 	if distType == "url" {
 		launchURL := strings.TrimSpace(req.LaunchURL)
@@ -148,6 +167,10 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		}
 
 		if err := database.DB.Create(&version).Error; err != nil {
+			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "UNIQUE") {
+				utils.Error(c, http.StatusConflict, "version_code already exists for this app")
+				return
+			}
 			utils.Error(c, http.StatusInternalServerError, "Failed to create version")
 			return
 		}
@@ -170,9 +193,13 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	}
 	defer src.Close()
 
-	fileContent, err := io.ReadAll(src)
+	fileContent, err := io.ReadAll(io.LimitReader(src, maxVersionUploadBytes+1))
 	if err != nil {
 		utils.Error(c, http.StatusInternalServerError, "Failed to read file")
+		return
+	}
+	if int64(len(fileContent)) > maxVersionUploadBytes {
+		utils.Error(c, http.StatusBadRequest, "File exceeds maximum upload size (1 GiB)")
 		return
 	}
 
@@ -211,39 +238,46 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 				continue
 			}
 
+			safeName, serr := sanitizeZipEntryPath(zf.Name)
+			if serr != nil {
+				utils.Error(c, http.StatusBadRequest, serr.Error())
+				return
+			}
+
 			rc, err := zf.Open()
 			if err != nil {
-				log.Printf("Warning: cannot open zip entry %s: %v", zf.Name, err)
-				continue
+				utils.Error(c, http.StatusBadRequest, "Cannot open zip entry "+safeName+": "+err.Error())
+				return
 			}
 			data, err := io.ReadAll(rc)
 			rc.Close()
 			if err != nil {
-				log.Printf("Warning: cannot read zip entry %s: %v", zf.Name, err)
-				continue
+				utils.Error(c, http.StatusBadRequest, "Cannot read zip entry "+safeName+": "+err.Error())
+				return
 			}
 
 			hash := calculateHashFromBytes(data)
-			objectPath := fmt.Sprintf("apps/%s/%s/files/%s", appID, versionID, zf.Name)
+			objectPath := fmt.Sprintf("apps/%s/%s/files/%s", appID, versionID, safeName)
 
-			log.Printf("Uploading zip entry %s (%d bytes)", zf.Name, len(data))
+			log.Printf("Uploading zip entry %s (%d bytes)", safeName, len(data))
 			url, err := minioSvc.UploadFile(ctx, objectPath, data)
 			if err != nil {
-				log.Printf("Error uploading %s: %v", zf.Name, err)
-				utils.Error(c, http.StatusInternalServerError, "Failed to upload file: "+zf.Name)
+				log.Printf("Error uploading %s: %v", safeName, err)
+				cleanupVersionFolder(minioSvc, appID, versionID.String())
+				utils.Error(c, http.StatusInternalServerError, "Failed to upload file: "+safeName)
 				return
 			}
 
 			manifestFiles = append(manifestFiles, ManifestFile{
-				Path:   zf.Name,
+				Path:   safeName,
 				SHA256: hash,
 				Size:   int64(len(data)),
 				URL:    url,
 			})
 
 			// Auto-detect entry point
-			if entryPoint == "" && isZipEntryPointCandidate(zf.Name, distType) {
-				entryPoint = zf.Name
+			if entryPoint == "" && isZipEntryPointCandidate(safeName, distType) {
+				entryPoint = safeName
 			}
 		}
 
@@ -260,6 +294,7 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 		url, err := minioSvc.UploadFile(ctx, objectPath, fileContent)
 		if err != nil {
 			log.Printf("MinIO upload error: %v", err)
+			cleanupVersionFolder(minioSvc, appID, versionID.String())
 			utils.Error(c, http.StatusInternalServerError, "Failed to upload file: "+err.Error())
 			return
 		}
@@ -350,6 +385,7 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	manifestURL, err := minioSvc.UploadFile(ctx, manifestPath, manifestJSON, "application/json")
 	if err != nil {
 		log.Printf("Failed to upload manifest: %v", err)
+		cleanupVersionFolder(minioSvc, appID, versionID.String())
 		utils.Error(c, http.StatusInternalServerError, "Failed to upload manifest")
 		return
 	}
@@ -378,6 +414,11 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	}
 
 	if err := database.DB.Create(&version).Error; err != nil {
+		cleanupVersionFolder(minioSvc, appID, versionID.String())
+		if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "UNIQUE") {
+			utils.Error(c, http.StatusConflict, "version_code already exists for this app")
+			return
+		}
 		utils.Error(c, http.StatusInternalServerError, "Failed to create version")
 		return
 	}
@@ -385,12 +426,26 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	utils.Success(c, http.StatusCreated, version)
 }
 
+func cleanupVersionFolder(minioSvc *services.MinIOStorageService, appID, versionID string) {
+	if minioSvc == nil {
+		return
+	}
+	folderPath := fmt.Sprintf("apps/%s/%s", appID, versionID)
+	if err := minioSvc.DeleteFolder(context.Background(), folderPath); err != nil {
+		log.Printf("Warning: failed to cleanup MinIO folder %s: %v", folderPath, err)
+	}
+}
+
 // GetByID - GET /api/apps/:id/versions/:versionId
 func (h *AppVersionHandler) GetByID(c *gin.Context) {
 	versionID := c.Param("versionId")
 
 	var version models.AppVersion
-	if err := database.DB.First(&version, "id = ?", versionID).Error; err != nil {
+	query := database.DB.Where("id = ?", versionID)
+	if !isAdmin(c) {
+		query = query.Where("is_released = ?", true)
+	}
+	if err := query.First(&version).Error; err != nil {
 		utils.Error(c, http.StatusNotFound, "Version not found")
 		return
 	}
@@ -503,6 +558,17 @@ func calculateHashFromBytes(data []byte) string {
 func isZipFile(filename string) bool {
 	ext := strings.ToLower(filepath.Ext(filename))
 	return ext == ".zip"
+}
+
+func sanitizeZipEntryPath(name string) (string, error) {
+	normalized := strings.ReplaceAll(name, "\\", "/")
+	for strings.HasPrefix(normalized, "/") {
+		normalized = normalized[1:]
+	}
+	if normalized == "" || strings.Contains(normalized, "..") {
+		return "", fmt.Errorf("invalid zip entry path: %s", name)
+	}
+	return normalized, nil
 }
 
 func isInstallerOnlyFile(filename string) bool {

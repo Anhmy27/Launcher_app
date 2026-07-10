@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from "react";
+import { useState, useEffect, useCallback, useRef } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
@@ -74,8 +74,11 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     }
   }, []);
 
+  const statusCheckRef = useRef(0);
+
   // Check install status for every app by looking at local managed directory
   const checkFileStatuses = useCallback(async () => {
+    const checkId = ++statusCheckRef.current;
     const statuses = new Map<string, AppInstallStatus>();
 
     let syncedAppIds = new Set<string>();
@@ -195,6 +198,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
       }
     }
 
+    if (checkId !== statusCheckRef.current) return;
     setFileStatuses(statuses);
   }, [appDetails]);
 

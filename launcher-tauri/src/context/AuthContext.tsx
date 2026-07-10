@@ -39,26 +39,27 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
+async function registerDeviceForUser(): Promise<void> {
+  try {
+    const sysInfo = await tauriCommands.getSystemInfo();
+    const savedDeviceId = localStorage.getItem("deviceId");
+    const device = await apiClient.registerDevice(
+      sysInfo.hostname,
+      sysInfo.hostname,
+      sysInfo.machine_id,
+      sysInfo.ip_address,
+      savedDeviceId,
+    );
+    localStorage.setItem("deviceId", device.id);
+  } catch (err) {
+    console.error("Failed to register device:", err);
+  }
+}
+
   const login = async (email: string, password: string) => {
     const data = await apiClient.login(email, password);
     setUser(data.user);
-
-    // Register device after successful login
-    try {
-      const sysInfo = await tauriCommands.getSystemInfo();
-      const savedDeviceId = localStorage.getItem("deviceId");
-      const device = await apiClient.registerDevice(
-        sysInfo.hostname,
-        sysInfo.hostname,
-        sysInfo.machine_id,
-        sysInfo.ip_address,
-        savedDeviceId,
-      );
-      localStorage.setItem("deviceId", device.id);
-    } catch (err) {
-      console.error("Failed to register device:", err);
-      // Don't fail login if device registration fails
-    }
+    await registerDeviceForUser();
   };
 
   const register = async (
@@ -68,6 +69,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   ) => {
     const data = await apiClient.register(email, password, fullName);
     setUser(data.user);
+    await registerDeviceForUser();
   };
 
   const logout = () => {

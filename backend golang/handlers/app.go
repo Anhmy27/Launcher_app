@@ -78,7 +78,13 @@ func (h *AppHandler) List(c *gin.Context) {
 		query = query.Where("category = ?", category)
 	}
 
-	if published := c.Query("published"); published == "true" {
+	if isAdmin(c) {
+		if published := c.Query("published"); published == "true" {
+			query = query.Where("is_published = ?", true)
+		} else if published == "false" {
+			query = query.Where("is_published = ?", false)
+		}
+	} else {
 		query = query.Where("is_published = ?", true)
 	}
 
@@ -99,9 +105,20 @@ func (h *AppHandler) GetByID(c *gin.Context) {
 	id := c.Param("id")
 
 	var app models.Application
-	if err := database.DB.Preload("Versions", func(db *gorm.DB) *gorm.DB {
-		return db.Order("version_code DESC")
-	}).First(&app, "id = ?", id).Error; err != nil {
+	versionQuery := func(db *gorm.DB) *gorm.DB {
+		q := db.Order("version_code DESC")
+		if !isAdmin(c) {
+			q = q.Where("is_released = ?", true)
+		}
+		return q
+	}
+
+	if err := database.DB.Preload("Versions", versionQuery).First(&app, "id = ?", id).Error; err != nil {
+		utils.Error(c, http.StatusNotFound, "App not found")
+		return
+	}
+
+	if !isAdmin(c) && !app.IsPublished {
 		utils.Error(c, http.StatusNotFound, "App not found")
 		return
 	}
@@ -193,8 +210,21 @@ func (h *AppHandler) Delete(c *gin.Context) {
 func (h *AppHandler) ListVersions(c *gin.Context) {
 	id := c.Param("id")
 
+	if !isAdmin(c) {
+		var app models.Application
+		if err := database.DB.First(&app, "id = ? AND is_published = ?", id, true).Error; err != nil {
+			utils.Error(c, http.StatusNotFound, "App not found")
+			return
+		}
+	}
+
 	var versions []models.AppVersion
-	if err := database.DB.Where("app_id = ?", id).Order("version_code DESC").Find(&versions).Error; err != nil {
+	query := database.DB.Where("app_id = ?", id)
+	if !isAdmin(c) {
+		query = query.Where("is_released = ?", true)
+	}
+
+	if err := query.Order("version_code DESC").Find(&versions).Error; err != nil {
 		utils.Error(c, http.StatusInternalServerError, "Failed to fetch versions")
 		return
 	}

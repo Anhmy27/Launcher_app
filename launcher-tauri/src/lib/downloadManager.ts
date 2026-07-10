@@ -300,6 +300,7 @@ class DownloadManager {
 
       const distType = manifest.distribution_type || version.distribution_type || 'portable';
       const isInstaller = distType === 'installer' || isInstallerVersion(version);
+      let installerExitCode: number | undefined;
 
       if (isInstaller) {
         const localState = await readLocalInstallState(installDir);
@@ -335,6 +336,8 @@ class DownloadManager {
             throw new Error(`Installer failed with exit code ${exitCode}`);
           }
 
+          installerExitCode = exitCode;
+
           const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
           const installState: InstallState = {
             distribution_type: 'installer',
@@ -359,12 +362,19 @@ class DownloadManager {
       await tauriCommands.writeTextFile(localManifestPath, JSON.stringify(manifest, null, 2));
       await syncDeviceVersion(app.id, manifest.version_code, manifest.version_name);
 
+      const installerCompletedMessage =
+        installerExitCode === 3010 || installerExitCode === 1641
+          ? 'Installer completed — reboot required'
+          : 'Installer completed';
+
       const completedProgress = {
         ...progress,
         downloadId: serverDownloadId,
         progress: 100,
         status: 'completed' as const,
-        fileName: isInstaller ? 'Installer completed' : `${filesToDownload.length} files installed`,
+        fileName: isInstaller
+          ? installerCompletedMessage
+          : `${filesToDownload.length} files installed`,
         downloadPath: installDir,
         downloadedFiles: filesToDownload.length,
         totalFiles: filesToDownload.length,

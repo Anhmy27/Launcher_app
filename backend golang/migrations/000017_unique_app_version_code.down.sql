@@ -1,0 +1,1 @@
+DROP INDEX IF EXISTS idx_app_versions_app_id_version_code;
