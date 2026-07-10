@@ -243,12 +243,13 @@ async fn run_installer(
     silent_args: String,
 ) -> Result<i32, String> {
     let args = parse_command_args(silent_args.trim());
+    let kind = installer_kind.to_lowercase();
 
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
 
-        let status = if installer_kind == "msi" {
+        let status = if kind == "msi" {
             let mut cmd = Command::new("msiexec");
             cmd.arg("/i").arg(&installer_path);
             for arg in &args {
@@ -283,12 +284,13 @@ async fn run_uninstaller(
     uninstall_args: String,
 ) -> Result<i32, String> {
     let args = parse_command_args(uninstall_args.trim());
+    let kind = installer_kind.to_lowercase();
 
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
 
-        let status = if installer_kind == "msi" {
+        let status = if kind == "msi" {
             let code = product_code.trim();
             if code.is_empty() {
                 return Err("MSI product code is required for uninstall".to_string());

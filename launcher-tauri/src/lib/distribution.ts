@@ -33,9 +33,20 @@ export function isInstallerExitSuccess(code: number): boolean {
 export interface InstallState {
   distribution_type: 'installer';
   installer_completed: boolean;
+  version_id?: string;
   version_code: number;
   version_name: string;
   installer_exit_code?: number;
+  installer_kind?: string;
+  installer_product_code?: string;
+  installer_uninstall_path?: string;
+  installer_uninstall_args?: string;
+  installer_launch_path?: string;
 }
 
 export const INSTALL_STATE_FILE = 'install-state.json';
+
+/** Join install dir + manifest-relative path using Windows separators. */
+export function toLocalPath(installDir: string, relativePath: string): string {
+  return `${installDir}\\${relativePath.replace(/\//g, '\\')}`;
+}

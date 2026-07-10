@@ -3,16 +3,17 @@ import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
+import downloadManager, { isDownloadInProgress } from "../lib/downloadManager";
 import { open as openExternal } from "@tauri-apps/plugin-shell";
 import {
   INSTALL_STATE_FILE,
   distributionLabel,
   isInstallerVersion,
   isUrlVersion,
+  toLocalPath,
   type InstallState,
 } from "../lib/distribution";
-import downloadManager from "../lib/downloadManager";
-import { canSystemUninstall, uninstallAppFromDevice } from "../lib/appCleanup";
+import { canSystemUninstall, readLocalInstallMetadata, uninstallAppFromDevice } from "../lib/appCleanup";
 import "./Library.css";
 
 interface LibraryProps {
@@ -111,8 +112,8 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
         }
 
         const installDir = await tauriCommands.getAppDataDir(detail.app.slug);
-        const manifestPath = `${installDir}\\manifest.json`;
-        const installStatePath = `${installDir}\\${INSTALL_STATE_FILE}`;
+        const manifestPath = toLocalPath(installDir, 'manifest.json');
+        const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
 
         let isInstalled = false;
         let canLaunch = false;
@@ -140,14 +141,6 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
           } catch {
             isInstalled = false;
           }
-
-          if (canLaunch) {
-            isInstalled = true;
-            if (!localVersionCode) {
-              localVersionCode = latestVersion.version_code;
-              localVersionName = latestVersion.version_name;
-            }
-          }
         } else {
           try {
             const exists = await tauriCommands.checkAppExists(manifestPath);
@@ -174,7 +167,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
 
         const canUninstall = isInstallerVersion(latestVersion)
           ? isInstalled || canLaunch || hasDeviceSync
-          : isInstalled;
+          : isInstalled || hasDeviceSync;
 
         statuses.set(appId, {
           isInstalled,
@@ -348,7 +341,14 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
   ) => {
     const isUrl = isUrlVersion(latestVersion);
     const isInstaller = isInstallerVersion(latestVersion);
-    const systemUninstall = canSystemUninstall(latestVersion);
+
+    const localMeta = isInstaller ? await readLocalInstallMetadata(appSlug) : null;
+    const versionForPrompt = {
+      ...latestVersion,
+      ...localMeta,
+      distribution_type: latestVersion?.distribution_type,
+    } as AppVersion;
+    const systemUninstall = canSystemUninstall(versionForPrompt);
 
     let prompt: string;
     if (isUrl) {
@@ -524,6 +524,8 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                               ? `Installing... ${dl.downloadedFiles ?? 0}/${dl.totalFiles ?? "?"} files (${dl.progress.toFixed(0)}%)`
                               : dl.status === "running_installer"
                                 ? "Running installer..."
+                                : dl.status === "failed"
+                                  ? `❌ ${dl.fileName} — click Install to retry`
                               : "❌ Failed"}
                       </span>
                     </div>
@@ -541,7 +543,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                   )}
 
                   {!status?.isInstalled &&
-                    !dl &&
+                    !isDownloadInProgress(dl) &&
                     latestVersion &&
                     !isUrlVersion(latestVersion) && (
                     <button

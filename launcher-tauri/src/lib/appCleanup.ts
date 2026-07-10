@@ -1,10 +1,14 @@
 import type { AppVersion } from './api';
 import apiClient from './api';
+import type { Manifest } from './downloadManager';
 import { tauriCommands } from './tauri';
 import {
+  INSTALL_STATE_FILE,
   isInstallerExitSuccess,
   isInstallerVersion,
   isUrlVersion,
+  toLocalPath,
+  type InstallState,
 } from './distribution';
 
 /**
@@ -12,24 +16,88 @@ import {
  * Not used for "remove from library" (that only updates user_apps on the server).
  */
 
-export function canSystemUninstall(version?: AppVersion): boolean {
-  if (!isInstallerVersion(version) || !version) return false;
+export function canSystemUninstall(version?: Partial<AppVersion>): boolean {
+  if (!version || version.distribution_type !== 'installer') return false;
   const kind = (version.installer_kind || '').toLowerCase();
   if (kind === 'msi') return Boolean(version.installer_product_code?.trim());
   if (kind === 'exe') return Boolean(version.installer_uninstall_path?.trim());
   return false;
 }
 
+/** Read uninstall metadata from local manifest / install-state (installed version). */
+export async function readLocalInstallMetadata(
+  appSlug: string,
+): Promise<Partial<AppVersion> | null> {
+  try {
+    const installDir = await tauriCommands.getAppDataDir(appSlug);
+    const manifestPath = toLocalPath(installDir, 'manifest.json');
+
+    try {
+      const manifestStr = await tauriCommands.readTextFile(manifestPath);
+      const manifest: Manifest = JSON.parse(manifestStr);
+      return {
+        id: manifest.version_id,
+        version_code: manifest.version_code,
+        version_name: manifest.version_name,
+        distribution_type: manifest.distribution_type || 'installer',
+        installer_kind: manifest.installer_kind,
+        installer_product_code: manifest.installer_product_code,
+        installer_uninstall_path: manifest.installer_uninstall_path,
+        installer_uninstall_args: manifest.installer_uninstall_args,
+        installer_launch_path: manifest.installer_launch_path,
+      };
+    } catch {
+      const statePath = toLocalPath(installDir, INSTALL_STATE_FILE);
+      const stateStr = await tauriCommands.readTextFile(statePath);
+      const state: InstallState = JSON.parse(stateStr);
+      return {
+        id: state.version_id,
+        version_code: state.version_code,
+        version_name: state.version_name,
+        distribution_type: 'installer',
+        installer_kind: state.installer_kind,
+        installer_product_code: state.installer_product_code,
+        installer_uninstall_path: state.installer_uninstall_path,
+        installer_uninstall_args: state.installer_uninstall_args,
+        installer_launch_path: state.installer_launch_path,
+      };
+    }
+  } catch {
+    return null;
+  }
+}
+
+function mergeVersionMetadata(
+  latest?: AppVersion,
+  local?: Partial<AppVersion> | null,
+): AppVersion | undefined {
+  if (!latest && !local) return undefined;
+  return {
+    ...(latest || {}),
+    ...(local || {}),
+    distribution_type: local?.distribution_type || latest?.distribution_type,
+    installer_kind: local?.installer_kind || latest?.installer_kind,
+    installer_product_code: local?.installer_product_code || latest?.installer_product_code,
+    installer_uninstall_path: local?.installer_uninstall_path || latest?.installer_uninstall_path,
+    installer_uninstall_args: local?.installer_uninstall_args || latest?.installer_uninstall_args,
+    installer_launch_path: local?.installer_launch_path || latest?.installer_launch_path,
+    version_code: local?.version_code ?? latest?.version_code ?? 0,
+    version_name: local?.version_name || latest?.version_name || '',
+  } as AppVersion;
+}
+
 /** Delete managed local folder for an app (%LOCALAPPDATA%/LauncherApps/{slug}). */
-export async function deleteLocalAppFiles(appSlug: string): Promise<void> {
+export async function deleteLocalAppFiles(appSlug: string): Promise<boolean> {
   try {
     const installDir = await tauriCommands.getAppDataDir(appSlug);
     const exists = await tauriCommands.checkAppExists(installDir);
     if (exists) {
       await tauriCommands.deleteDirectory(installDir);
+      return true;
     }
+    return false;
   } catch {
-    // Directory may not exist
+    return false;
   }
 }
 
@@ -53,14 +121,12 @@ export interface UninstallResult {
 
 /**
  * Uninstall from this device while keeping the app in library.
- * - URL: clear device sync only
- * - Portable: delete local files + device sync
- * - Installer: optional Windows uninstall + always clear local cache + device sync
+ * Uses locally installed version metadata when available.
  */
 export async function uninstallAppFromDevice(
   appSlug: string,
   appId: string,
-  version?: AppVersion,
+  latestVersion?: AppVersion,
 ): Promise<UninstallResult> {
   const result: UninstallResult = {
     removedSystemApp: false,
@@ -68,18 +134,21 @@ export async function uninstallAppFromDevice(
     removedDeviceSync: false,
   };
 
-  if (isUrlVersion(version)) {
+  if (isUrlVersion(latestVersion)) {
     await deleteDeviceAppStatus(appId);
     result.removedDeviceSync = true;
     return result;
   }
 
-  if (isInstallerVersion(version) && version && canSystemUninstall(version)) {
+  const localMeta = await readLocalInstallMetadata(appSlug);
+  const versionForUninstall = mergeVersionMetadata(latestVersion, localMeta);
+
+  if (isInstallerVersion(versionForUninstall) && versionForUninstall && canSystemUninstall(versionForUninstall)) {
     const exitCode = await tauriCommands.runUninstaller(
-      version.installer_kind || '',
-      version.installer_product_code?.trim() || '',
-      version.installer_uninstall_path?.trim() || '',
-      version.installer_uninstall_args?.trim() || '',
+      (versionForUninstall.installer_kind || '').toLowerCase(),
+      versionForUninstall.installer_product_code?.trim() || '',
+      versionForUninstall.installer_uninstall_path?.trim() || '',
+      versionForUninstall.installer_uninstall_args?.trim() || '',
     );
     if (!isInstallerExitSuccess(exitCode)) {
       throw new Error(`Uninstaller failed with exit code ${exitCode}`);
@@ -87,15 +156,9 @@ export async function uninstallAppFromDevice(
     result.removedSystemApp = true;
   }
 
-  await deleteLocalAppFiles(appSlug);
-  result.removedLocalCache = true;
+  result.removedLocalCache = await deleteLocalAppFiles(appSlug);
   await deleteDeviceAppStatus(appId);
   result.removedDeviceSync = true;
 
   return result;
-}
-
-/** @deprecated Use uninstallAppFromDevice */
-export async function cleanupAppOnDevice(appSlug: string, appId: string): Promise<void> {
-  await uninstallAppFromDevice(appSlug, appId);
 }

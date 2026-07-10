@@ -7,6 +7,8 @@ import {
   isInstallerExitSuccess,
   isInstallerVersion,
   isUrlVersion,
+  toLocalPath,
+  type InstallState,
 } from './distribution';
 
 // ─── Manifest types (mirrors backend Manifest struct) ─────────────────────
@@ -42,7 +44,7 @@ export interface DownloadProgress {
   appId: string;
   versionId: string;
   appName: string;
-  progress: number; // 0-100
+  progress: number;
   status:
     | 'fetching_manifest'
     | 'comparing'
@@ -56,7 +58,20 @@ export interface DownloadProgress {
   totalFiles?: number;
 }
 
+const IN_PROGRESS_STATUSES: DownloadProgress['status'][] = [
+  'fetching_manifest',
+  'comparing',
+  'downloading',
+  'running_installer',
+];
+
 type DownloadListener = (downloads: DownloadProgress[]) => void;
+
+/** True when a download blocks starting another install for the same app. */
+export function isDownloadInProgress(dl?: DownloadProgress): boolean {
+  if (!dl) return false;
+  return IN_PROGRESS_STATUSES.includes(dl.status);
+}
 
 async function syncDeviceVersion(appId: string, versionCode: number, versionName: string) {
   const deviceId = localStorage.getItem('deviceId');
@@ -69,6 +84,18 @@ async function syncDeviceVersion(appId: string, versionCode: number, versionName
     }]);
   } catch {
     // ignore
+  }
+}
+
+async function readLocalInstallState(installDir: string): Promise<InstallState | null> {
+  const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
+  try {
+    const exists = await tauriCommands.checkAppExists(installStatePath);
+    if (!exists) return null;
+    const stateStr = await tauriCommands.readTextFile(installStatePath);
+    return JSON.parse(stateStr) as InstallState;
+  } catch {
+    return null;
   }
 }
 
@@ -91,9 +118,16 @@ class DownloadManager {
     return Array.from(this.downloads.values());
   }
 
-  /**
-   * Open a URL app and sync device status.
-   */
+  getDownloadForApp(appId: string): DownloadProgress | undefined {
+    return this.getDownloads().find((d) => d.appId === appId);
+  }
+
+  clearDownload(appId: string, versionId: string) {
+    const key = `${appId}-${versionId}`;
+    this.downloads.delete(key);
+    this.notify();
+  }
+
   async openUrlApp(app: App, version: AppVersion) {
     if (!version.launch_url) {
       throw new Error('No launch URL configured for this app');
@@ -111,8 +145,14 @@ class DownloadManager {
       return;
     }
 
-    if (this.downloads.has(key) && this.downloads.get(key)!.status === 'downloading') {
+    const existing = this.downloads.get(key);
+    if (existing && isDownloadInProgress(existing)) {
       return;
+    }
+
+    // Allow retry after failed/completed by clearing stale entry
+    if (existing && (existing.status === 'failed' || existing.status === 'completed')) {
+      this.downloads.delete(key);
     }
 
     const progress: DownloadProgress = {
@@ -165,6 +205,7 @@ class DownloadManager {
 
       const installDir = await tauriCommands.getAppDataDir(app.slug);
       await tauriCommands.ensureDirExists(installDir);
+      const localManifestPath = toLocalPath(installDir, 'manifest.json');
 
       const comparingProgress = {
         ...progress,
@@ -177,7 +218,6 @@ class DownloadManager {
       await pushBackendProgress('in_progress', comparingProgress, 0);
 
       const localHashes = new Map<string, string>();
-      const localManifestPath = `${installDir}\\manifest.json`;
 
       try {
         const localManifestStr = await tauriCommands.readTextFile(localManifestPath);
@@ -185,7 +225,7 @@ class DownloadManager {
 
         for (const f of localManifest.files) {
           try {
-            const filePath = `${installDir}\\${f.path.replace(/\//g, '\\\\')}`;
+            const filePath = toLocalPath(installDir, f.path);
             const exists = await tauriCommands.checkAppExists(filePath);
             if (exists) {
               const hash = await tauriCommands.calculateFileHash(filePath);
@@ -208,8 +248,7 @@ class DownloadManager {
       for (const [localPath] of localHashes) {
         if (!newPaths.has(localPath)) {
           try {
-            const fullPath = `${installDir}\\${localPath.replace(/\//g, '\\\\')}`;
-            await tauriCommands.deleteFile(fullPath);
+            await tauriCommands.deleteFile(toLocalPath(installDir, localPath));
           } catch { /* ignore */ }
         }
       }
@@ -231,7 +270,7 @@ class DownloadManager {
 
       for (let i = 0; i < filesToDownload.length; i++) {
         const file = filesToDownload[i];
-        const destPath = `${installDir}\\${file.path.replace(/\//g, '\\\\')}`;
+        const destPath = toLocalPath(installDir, file.path);
 
         const downloadingProgress = {
           ...progress,
@@ -249,6 +288,13 @@ class DownloadManager {
         await pushBackendProgress('in_progress', downloadingProgress, downloadedBytes);
 
         await tauriCommands.downloadFileToPath(file.url, destPath);
+
+        const actualHash = await tauriCommands.calculateFileHash(destPath);
+        if (actualHash !== file.sha256) {
+          await tauriCommands.deleteFile(destPath);
+          throw new Error(`Hash mismatch for ${file.path}`);
+        }
+
         downloadedBytes += file.size;
       }
 
@@ -256,43 +302,58 @@ class DownloadManager {
       const isInstaller = distType === 'installer' || isInstallerVersion(version);
 
       if (isInstaller) {
-        const installerKind = manifest.installer_kind || version.installer_kind || '';
-        const silentArgs = manifest.installer_silent_args || version.installer_silent_args || '';
-        const installerPath = `${installDir}\\${manifest.entry_point.replace(/\//g, '\\\\')}`;
+        const localState = await readLocalInstallState(installDir);
+        const alreadyInstalled =
+          localState?.installer_completed === true &&
+          localState.version_code === manifest.version_code &&
+          filesToDownload.length === 0;
 
-        const runningInstallerProgress = {
-          ...progress,
-          downloadId: serverDownloadId,
-          status: 'running_installer' as const,
-          fileName: 'Running installer...',
-          progress: 90,
-          downloadPath: installDir,
-        };
-        this.downloads.set(key, runningInstallerProgress);
-        this.notify();
-        await pushBackendProgress('in_progress', runningInstallerProgress, downloadedBytes);
+        if (!alreadyInstalled) {
+          const installerKind = (manifest.installer_kind || version.installer_kind || '').toLowerCase();
+          const silentArgs = manifest.installer_silent_args || version.installer_silent_args || '';
+          const installerPath = toLocalPath(installDir, manifest.entry_point);
 
-        const exitCode = await tauriCommands.runInstaller(
-          installerKind,
-          installerPath,
-          silentArgs,
-        );
+          const runningInstallerProgress = {
+            ...progress,
+            downloadId: serverDownloadId,
+            status: 'running_installer' as const,
+            fileName: 'Running installer...',
+            progress: 90,
+            downloadPath: installDir,
+          };
+          this.downloads.set(key, runningInstallerProgress);
+          this.notify();
+          await pushBackendProgress('in_progress', runningInstallerProgress, downloadedBytes);
 
-        if (!isInstallerExitSuccess(exitCode)) {
-          throw new Error(`Installer failed with exit code ${exitCode}`);
-        }
+          const exitCode = await tauriCommands.runInstaller(
+            installerKind,
+            installerPath,
+            silentArgs,
+          );
 
-        const installStatePath = `${installDir}\\${INSTALL_STATE_FILE}`;
-        await tauriCommands.writeTextFile(
-          installStatePath,
-          JSON.stringify({
+          if (!isInstallerExitSuccess(exitCode)) {
+            throw new Error(`Installer failed with exit code ${exitCode}`);
+          }
+
+          const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
+          const installState: InstallState = {
             distribution_type: 'installer',
             installer_completed: true,
+            version_id: manifest.version_id,
             version_code: manifest.version_code,
             version_name: manifest.version_name,
             installer_exit_code: exitCode,
-          }, null, 2),
-        );
+            installer_kind: installerKind,
+            installer_product_code: manifest.installer_product_code || version.installer_product_code,
+            installer_uninstall_path: manifest.installer_uninstall_path || version.installer_uninstall_path,
+            installer_uninstall_args: manifest.installer_uninstall_args || version.installer_uninstall_args,
+            installer_launch_path: manifest.installer_launch_path || version.installer_launch_path,
+          };
+          await tauriCommands.writeTextFile(
+            installStatePath,
+            JSON.stringify(installState, null, 2),
+          );
+        }
       }
 
       await tauriCommands.writeTextFile(localManifestPath, JSON.stringify(manifest, null, 2));
@@ -311,6 +372,13 @@ class DownloadManager {
       this.downloads.set(key, completedProgress);
       this.notify();
       await pushBackendProgress('completed', completedProgress, downloadedBytes);
+
+      setTimeout(() => {
+        if (this.downloads.get(key)?.status === 'completed') {
+          this.downloads.delete(key);
+          this.notify();
+        }
+      }, 4000);
     } catch (err) {
       console.error('Install error:', err);
       const failedProgress = {
@@ -346,9 +414,7 @@ class DownloadManager {
   }
 
   removeDownload(appId: string, versionId: string) {
-    const key = `${appId}-${versionId}`;
-    this.downloads.delete(key);
-    this.notify();
+    this.clearDownload(appId, versionId);
   }
 }
 
