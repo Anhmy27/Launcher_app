@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion } from "../lib/api";
-import downloadManager from "../lib/downloadManager";
 import { isUrlVersion } from "../lib/distribution";
 import { useLocale } from "../context/LocaleContext";
 import "./Store.css";
@@ -53,13 +52,7 @@ export default function Store({ onNavigate }: StoreProps) {
         throw new Error(t.noVersion);
       }
       await apiClient.installApp(app.id);
-
-      if (isUrlVersion(latestVersion)) {
-        await downloadManager.openUrlApp(app, latestVersion);
-        setMessage(`${app.name} ${t.addedOpening}`);
-      } else {
-        setMessage(`${app.name} ${t.addedToLibrary}`);
-      }
+      setMessage(`${app.name} ${t.addedToLibrary}`);
 
       setTimeout(() => onNavigate("library"), 1500);
     } catch (err: unknown) {
@@ -131,11 +124,7 @@ export default function Store({ onNavigate }: StoreProps) {
             onClick={() => handleAddToLibrary(selectedApp)}
             disabled={installing === selectedApp.id}
           >
-            {installing === selectedApp.id
-              ? t.adding
-              : isUrl
-                ? t.addAndOpen
-                : t.addToLibrary}
+            {installing === selectedApp.id ? t.adding : t.addToLibrary}
           </button>
         </div>
 
