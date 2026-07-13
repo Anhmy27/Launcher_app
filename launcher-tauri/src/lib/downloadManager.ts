@@ -463,11 +463,19 @@ class DownloadManager {
       }, 4000);
     } catch (err) {
       console.error('Install error:', err);
+      const errorMessage =
+        err instanceof Error
+          ? err.message
+          : typeof err === 'string'
+            ? err
+            : err && typeof err === 'object' && 'message' in err
+              ? String((err as { message: unknown }).message)
+              : String(err ?? 'Unknown error');
       const failedProgress = {
         ...progress,
         downloadId: serverDownloadId,
         status: 'failed' as const,
-        fileName: err instanceof Error ? err.message : 'Unknown error',
+        fileName: errorMessage,
       };
       this.downloads.set(key, failedProgress);
       this.notify();

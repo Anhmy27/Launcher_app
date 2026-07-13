@@ -235,6 +235,92 @@ fn parse_command_args(args: &str) -> Vec<String> {
     out
 }
 
+/// Quote a Windows command-line argument when it contains spaces/special chars.
+fn quote_windows_arg(arg: &str) -> String {
+    if arg.is_empty() {
+        return "\"\"".to_string();
+    }
+    let needs_quotes = arg.chars().any(|c| c.is_whitespace() || c == '"');
+    if !needs_quotes {
+        return arg.to_string();
+    }
+    format!("\"{}\"", arg.replace('"', "\\\""))
+}
+
+fn join_windows_args(args: &[String]) -> String {
+    args.iter().map(|a| quote_windows_arg(a)).collect::<Vec<_>>().join(" ")
+}
+
+/// Run a process via ShellExecuteEx so UAC elevation works for installers that
+/// require admin (CreateProcess fails with ERROR_ELEVATION_REQUIRED / 740).
+#[cfg(target_os = "windows")]
+fn run_via_shell_execute(file: &str, params: &str) -> Result<i32, String> {
+    use std::os::windows::ffi::OsStrExt;
+    use std::{mem, ptr};
+    use windows_sys::Win32::Foundation::{CloseHandle, WAIT_OBJECT_0, GetLastError};
+    use windows_sys::Win32::System::Threading::{GetExitCodeProcess, WaitForSingleObject, INFINITE};
+    use windows_sys::Win32::UI::Shell::{
+        ShellExecuteExW, SEE_MASK_NOCLOSEPROCESS, SHELLEXECUTEINFOW,
+    };
+    use windows_sys::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+
+    fn to_wide(s: &str) -> Vec<u16> {
+        std::ffi::OsStr::new(s)
+            .encode_wide()
+            .chain(std::iter::once(0))
+            .collect()
+    }
+
+    let file_w = to_wide(file);
+    let params_w = to_wide(params);
+    // "runas" triggers UAC when the target requires elevation.
+    let verb_w = to_wide("runas");
+
+    unsafe {
+        let mut info: SHELLEXECUTEINFOW = mem::zeroed();
+        info.cbSize = mem::size_of::<SHELLEXECUTEINFOW>() as u32;
+        info.fMask = SEE_MASK_NOCLOSEPROCESS;
+        info.lpVerb = verb_w.as_ptr();
+        info.lpFile = file_w.as_ptr();
+        info.lpParameters = if params.is_empty() {
+            ptr::null()
+        } else {
+            params_w.as_ptr()
+        };
+        info.nShow = SW_SHOWNORMAL;
+
+        let ok = ShellExecuteExW(&mut info);
+        if ok == 0 {
+            let err = GetLastError();
+            // 1223 = ERROR_CANCELLED (user dismissed UAC)
+            if err == 1223 {
+                return Err("Installer elevation was cancelled".to_string());
+            }
+            return Err(format!("Failed to start installer (Win32 error {})", err));
+        }
+
+        if info.hProcess == ptr::null_mut() {
+            return Err("Installer started but process handle was not returned".to_string());
+        }
+
+        let wait = WaitForSingleObject(info.hProcess, INFINITE);
+        if wait != WAIT_OBJECT_0 {
+            let _ = CloseHandle(info.hProcess);
+            return Err(format!("Failed waiting for installer (wait code {})", wait));
+        }
+
+        let mut exit_code: u32 = 0;
+        if GetExitCodeProcess(info.hProcess, &mut exit_code) == 0 {
+            let err = GetLastError();
+            let _ = CloseHandle(info.hProcess);
+            return Err(format!("Failed to read installer exit code (Win32 error {})", err));
+        }
+
+        let _ = CloseHandle(info.hProcess);
+        Ok(exit_code as i32)
+    }
+}
+
 /// Run an MSI or EXE installer and wait for it to finish. Returns the exit code.
 #[tauri::command]
 async fn run_installer(
@@ -247,25 +333,21 @@ async fn run_installer(
 
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-
-        let status = if kind == "msi" {
-            let mut cmd = Command::new("msiexec");
-            cmd.arg("/i").arg(&installer_path);
-            for arg in &args {
-                cmd.arg(arg);
-            }
-            cmd.status()
-        } else {
-            let mut cmd = Command::new(&installer_path);
-            for arg in &args {
-                cmd.arg(arg);
-            }
-            cmd.status()
+        let path = installer_path.trim();
+        if path.is_empty() {
+            return Err("Installer path is empty".to_string());
         }
-        .map_err(|e| format!("Failed to run installer: {}", e))?;
 
-        Ok(status.code().unwrap_or(-1))
+        if kind == "msi" {
+            let mut params = vec![
+                "/i".to_string(),
+                path.to_string(),
+            ];
+            params.extend(args);
+            run_via_shell_execute("msiexec", &join_windows_args(&params))
+        } else {
+            run_via_shell_execute(path, &join_windows_args(&args))
+        }
     }
 
     #[cfg(not(target_os = "windows"))]
@@ -288,33 +370,21 @@ async fn run_uninstaller(
 
     #[cfg(target_os = "windows")]
     {
-        use std::process::Command;
-
-        let status = if kind == "msi" {
+        if kind == "msi" {
             let code = product_code.trim();
             if code.is_empty() {
                 return Err("MSI product code is required for uninstall".to_string());
             }
-            let mut cmd = Command::new("msiexec");
-            cmd.arg("/x").arg(code);
-            for arg in &args {
-                cmd.arg(arg);
-            }
-            cmd.status()
+            let mut params = vec!["/x".to_string(), code.to_string()];
+            params.extend(args);
+            run_via_shell_execute("msiexec", &join_windows_args(&params))
         } else {
             let path = uninstall_path.trim();
             if path.is_empty() {
                 return Err("Uninstall path is required for EXE uninstall".to_string());
             }
-            let mut cmd = Command::new(path);
-            for arg in &args {
-                cmd.arg(arg);
-            }
-            cmd.status()
+            run_via_shell_execute(path, &join_windows_args(&args))
         }
-        .map_err(|e| format!("Failed to run uninstaller: {}", e))?;
-
-        Ok(status.code().unwrap_or(-1))
     }
 
     #[cfg(not(target_os = "windows"))]
