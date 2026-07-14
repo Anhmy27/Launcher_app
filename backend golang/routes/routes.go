@@ -28,12 +28,6 @@ func Setup(r *gin.Engine, cfg *config.Config) {
 			auth.POST("/refresh", authHandler.Refresh)
 		}
 
-		// Device registration (public)
-		devices := api.Group("/devices")
-		{
-			devices.POST("/register", deviceHandler.Register)
-		}
-
 		// ==================== Protected routes ====================
 		protected := api.Group("")
 		protected.Use(middleware.AuthMiddleware(cfg))
@@ -63,7 +57,9 @@ func Setup(r *gin.Engine, cfg *config.Config) {
 			protected.DELETE("/downloads/:downloadId", downloadHandler.DeleteMy)
 
 			// Device management (client)
+			protected.POST("/devices/register", deviceHandler.Register)
 			protected.POST("/devices/:id/heartbeat", deviceHandler.Heartbeat)
+			protected.POST("/devices/:id/logout", deviceHandler.Logout)
 			protected.POST("/devices/:id/apps/sync", deviceHandler.SyncApps)
 			protected.DELETE("/devices/:id/apps/:appId", deviceHandler.DeleteDeviceApp)
 			protected.GET("/devices/:id/status", deviceHandler.GetDeviceStatus)
@@ -91,6 +87,7 @@ func Setup(r *gin.Engine, cfg *config.Config) {
 
 				// Device management
 				admin.GET("/devices", deviceHandler.GetAllDevices)
+				admin.GET("/devices/:id", deviceHandler.GetDeviceDetail)
 				admin.PUT("/devices/:id", deviceHandler.UpdateDevice)
 				admin.DELETE("/devices/:id", deviceHandler.DeleteDevice)
 			}

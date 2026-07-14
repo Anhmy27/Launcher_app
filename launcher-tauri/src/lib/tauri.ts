@@ -22,10 +22,17 @@ export const tauriCommands = {
   },
 
   /**
-   * Launch/execute an application
+   * Launch/execute an application. Returns the launched process PID.
    */
-  async launchApp(appPath: string): Promise<void> {
-    return invoke<void>('launch_app', { appPath });
+  async launchApp(appPath: string): Promise<number> {
+    return invoke<number>('launch_app', { appPath });
+  },
+
+  /**
+   * Check whether a process with the given PID is still running.
+   */
+  async isProcessRunning(pid: number): Promise<boolean> {
+    return invoke<boolean>('is_process_running', { pid });
   },
 
   /**

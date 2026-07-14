@@ -7,6 +7,7 @@ import apiClient from "../lib/api";
 import downloadManager from "../lib/downloadManager";
 import type { DownloadProgress } from "../lib/downloadManager";
 import { tauriCommands } from "../lib/tauri";
+import { getActiveRunningApps } from "../lib/presence";
 import Logo from "./Logo";
 import Store from "../pages/Store";
 import Library from "../pages/Library";
@@ -40,14 +41,15 @@ export default function Layout() {
     const sendHeartbeat = async () => {
       try {
         const sysInfo = await tauriCommands.getSystemInfo();
-        await apiClient.deviceHeartbeat(deviceId, sysInfo.ip_address);
+        const activeApps = await getActiveRunningApps();
+        await apiClient.deviceHeartbeat(deviceId, sysInfo.ip_address, activeApps);
       } catch (err) {
         console.error("Heartbeat failed:", err);
       }
     };
 
     sendHeartbeat();
-    const interval = setInterval(sendHeartbeat, 5 * 60 * 1000);
+    const interval = setInterval(sendHeartbeat, 45 * 1000);
     return () => clearInterval(interval);
   }, []);
 

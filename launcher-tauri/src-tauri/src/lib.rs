@@ -50,36 +50,88 @@ fn get_downloads_path() -> Result<String, String> {
         .to_string())
 }
 
+/// Launch an application and return its process id (PID) so the client can
+/// track whether the app is still running. On Windows the executable is spawned
+/// directly (with its own folder as the working directory) so the returned PID
+/// belongs to the app itself, not a shell wrapper.
 #[tauri::command]
-async fn launch_app(app_path: String) -> Result<(), String> {
+async fn launch_app(app_path: String) -> Result<u32, String> {
     #[cfg(target_os = "windows")]
     {
         use std::process::Command;
-        Command::new("cmd")
-            .args(&["/C", "start", "", &app_path])
+        let path = PathBuf::from(&app_path);
+        let mut cmd = Command::new(&app_path);
+        if let Some(parent) = path.parent() {
+            if parent.as_os_str().len() > 0 {
+                cmd.current_dir(parent);
+            }
+        }
+        let child = cmd
             .spawn()
             .map_err(|e| format!("Failed to launch app: {}", e))?;
+        return Ok(child.id());
     }
 
     #[cfg(target_os = "macos")]
     {
         use std::process::Command;
-        Command::new("open")
+        let child = Command::new("open")
             .arg(&app_path)
             .spawn()
             .map_err(|e| format!("Failed to launch app: {}", e))?;
+        return Ok(child.id());
     }
 
     #[cfg(target_os = "linux")]
     {
         use std::process::Command;
-        Command::new("xdg-open")
+        let child = Command::new("xdg-open")
             .arg(&app_path)
             .spawn()
             .map_err(|e| format!("Failed to launch app: {}", e))?;
+        return Ok(child.id());
     }
 
-    Ok(())
+    #[allow(unreachable_code)]
+    {
+        let _ = app_path;
+        Err("Unsupported platform".to_string())
+    }
+}
+
+/// Return true if a process with the given PID is still running.
+#[tauri::command]
+fn is_process_running(pid: u32) -> bool {
+    if pid == 0 {
+        return false;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        use windows_sys::Win32::Foundation::{CloseHandle, WAIT_TIMEOUT};
+        use windows_sys::Win32::System::Threading::{
+            OpenProcess, WaitForSingleObject, PROCESS_SYNCHRONIZE,
+        };
+
+        unsafe {
+            let handle = OpenProcess(PROCESS_SYNCHRONIZE, 0, pid);
+            if handle.is_null() {
+                // Could not open -> either gone or access denied. Treat as gone.
+                return false;
+            }
+            // 0ms wait: WAIT_TIMEOUT means the process is still alive.
+            let wait = WaitForSingleObject(handle, 0);
+            CloseHandle(handle);
+            wait == WAIT_TIMEOUT
+        }
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        // Best effort on non-Windows: assume running so we don't end sessions early.
+        let _ = pid;
+        true
+    }
 }
 
 #[tauri::command]
@@ -416,6 +468,7 @@ pub fn run() {
             get_system_info,
             get_downloads_path,
             launch_app,
+            is_process_running,
             open_file,
             check_app_exists,
             delete_file,

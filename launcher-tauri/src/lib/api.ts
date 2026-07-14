@@ -170,11 +170,19 @@ class ApiClient {
     });
   }
 
-  async deviceHeartbeat(deviceId: string, ipAddress: string) {
+  async deviceHeartbeat(
+    deviceId: string,
+    ipAddress: string,
+    activeApps: { app_id: string; pid: number }[] = [],
+  ) {
     return this.request(`/devices/${deviceId}/heartbeat`, {
       method: 'POST',
-      body: JSON.stringify({ ip_address: ipAddress }),
+      body: JSON.stringify({ ip_address: ipAddress, active_apps: activeApps }),
     });
+  }
+
+  async deviceLogout(deviceId: string) {
+    return this.request(`/devices/${deviceId}/logout`, { method: 'POST' });
   }
 
   async syncDeviceApps(deviceId: string, apps: { app_id: string; installed_version_code: number; installed_version_name: string }[]) {

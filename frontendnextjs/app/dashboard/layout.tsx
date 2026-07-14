@@ -22,6 +22,7 @@ export default function DashboardLayout({
   const navItems = [
     { href: "/dashboard", label: t.navOverview, icon: "◈" },
     { href: "/dashboard/apps", label: t.navApps, icon: "▣" },
+    { href: "/dashboard/devices", label: t.navDevices, icon: "▤" },
     { href: "/dashboard/users", label: t.navUsers, icon: "◎" },
   ];
 

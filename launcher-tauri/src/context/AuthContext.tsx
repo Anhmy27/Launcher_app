@@ -3,6 +3,7 @@ import type { ReactNode } from "react";
 import apiClient from "../lib/api";
 import type { User } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
+import { clearRunningApps } from "../lib/presence";
 
 interface AuthContextType {
   user: User | null;
@@ -13,7 +14,7 @@ interface AuthContextType {
     password: string,
     fullName: string,
   ) => Promise<void>;
-  logout: () => void;
+  logout: () => Promise<void>;
   isAuthenticated: boolean;
 }
 
@@ -72,7 +73,16 @@ async function registerDeviceForUser(): Promise<void> {
     await registerDeviceForUser();
   };
 
-  const logout = () => {
+  const logout = async () => {
+    const deviceId = localStorage.getItem("deviceId");
+    if (deviceId) {
+      try {
+        await apiClient.deviceLogout(deviceId);
+      } catch (err) {
+        console.error("Device logout failed:", err);
+      }
+    }
+    clearRunningApps();
     apiClient.logout();
     localStorage.removeItem("deviceId");
     setUser(null);

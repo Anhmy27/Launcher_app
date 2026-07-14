@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
+import { trackRunningApp } from "../lib/presence";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
 import { isDownloadInProgress } from "../lib/downloadManager";
 import { useLocale } from "../context/LocaleContext";
@@ -268,6 +269,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
   }, [downloads, appDetails, checkFileStatuses]);
 
   const handleLaunch = async (
+    appId: string,
     appName: string,
     appSlug: string,
     installDir: string,
@@ -296,7 +298,8 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
           setMessage(`${t.appNotFoundAt}: ${launchPath}`);
           return;
         }
-        await tauriCommands.launchApp(launchPath);
+        const pid = await tauriCommands.launchApp(launchPath);
+        trackRunningApp(appId, pid);
         setMessage(`${t.launching} ${appName}...`);
         return;
       }
@@ -368,7 +371,8 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
         }
       }
 
-      await tauriCommands.launchApp(resolvedExePath);
+      const pid = await tauriCommands.launchApp(resolvedExePath);
+      trackRunningApp(appId, pid);
       setMessage(`Launching ${appName}...`);
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : t.failedLaunch);
@@ -590,6 +594,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                         className="launch-btn"
                         onClick={() =>
                           handleLaunch(
+                            ua.app_id,
                             app?.name || "",
                             app?.slug || ua.app_id,
                             status.installDir || "",

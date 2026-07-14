@@ -22,6 +22,46 @@ export interface LoginResponse {
   expires_in: number;
 }
 
+export interface RunningApp {
+  app_id: string;
+  name: string;
+  slug: string;
+  icon_url: string;
+  pid: number;
+  started_at: string;
+}
+
+export interface DevicePresence {
+  id: string;
+  device_name: string;
+  hostname: string;
+  machine_id: string;
+  ip_address: string;
+  current_user_id: string | null;
+  current_user?: User | null;
+  last_seen: string | null;
+  is_active: boolean;
+  is_online: boolean;
+  running_apps: RunningApp[];
+}
+
+export interface InstalledApp {
+  app_id: string;
+  name: string;
+  slug: string;
+  icon_url: string;
+  installed_version_code: number;
+  installed_version_name: string;
+  last_checked: string | null;
+}
+
+export interface DeviceDetail {
+  device: DevicePresence;
+  is_online: boolean;
+  running_apps: RunningApp[];
+  installed_apps: InstalledApp[];
+}
+
 class ApiClient {
   private token: string | null = null;
 
@@ -212,6 +252,19 @@ class ApiClient {
     return this.request(`/apps/${appId}/versions/${versionId}`, {
       method: 'DELETE',
     });
+  }
+
+  // Devices / presence
+  async getDevices(): Promise<DevicePresence[]> {
+    return this.request('/devices') as Promise<DevicePresence[]>;
+  }
+
+  async getDeviceDetail(id: string): Promise<DeviceDetail> {
+    return this.request(`/devices/${id}`) as Promise<DeviceDetail>;
+  }
+
+  async deleteDevice(id: string) {
+    return this.request(`/devices/${id}`, { method: 'DELETE' });
   }
 
   // Users

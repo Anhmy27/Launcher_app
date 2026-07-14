@@ -58,8 +58,9 @@ migrate create -ext sql -dir migrations -seq migration_name
 - `000016_add_installer_uninstall_fields.up.sql` / `.down.sql`
 - `000017_unique_app_version_code.up.sql` / `.down.sql`
 - `000018_drop_url_distribution.up.sql` / `.down.sql`
+- `000019_add_device_presence.up.sql` / `.down.sql` (devices.current_user_id + device_app_sessions)
 
-Current schema version: `18`
+Current schema version: `19`
 
 ## Default Admin
 
