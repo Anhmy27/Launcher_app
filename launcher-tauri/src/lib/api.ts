@@ -225,8 +225,7 @@ export interface AppVersion {
   file_size: number;
   file_hash: string;
   manifest_url: string;
-  distribution_type?: 'portable' | 'installer' | 'url';
-  launch_url?: string;
+  distribution_type?: 'portable' | 'installer';
   installer_kind?: string;
   installer_silent_args?: string;
   installer_launch_path?: string;

@@ -37,7 +37,6 @@ export function LocaleProvider({ children }: { children: ReactNode }) {
 
   const distLabel = (type?: string) => {
     switch (type) {
-      case "url": return t.distUrl;
       case "installer": return t.distInstaller;
       default: return t.distPortable;
     }

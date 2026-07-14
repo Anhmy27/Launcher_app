@@ -5,10 +5,9 @@ A desktop application launcher platform with admin portal, Go API, and Tauri cli
 ## Features
 
 - **Store & library** — browse published apps, add to library, install/update/launch from the desktop client
-- **Three distribution types**
+- **Two distribution types**
   - **Portable** — download files into a managed folder, launch local executable
   - **Installer** — download MSI/Setup, run installer, launch via absolute path after install
-  - **URL** — open a web app link from the library (no file download)
 - **Incremental updates** — manifest + SHA-256 file comparison; only changed files are downloaded
 - **Device sync** — track which apps are installed on which device (`device_app_status`) for admin visibility
 - **Admin panel** — manage apps, versions, users; light/dark theme; EN/VI locale
@@ -84,7 +83,7 @@ go run .
 
 API: http://localhost:8080  
 
-Migrations run automatically on startup. Current schema version: **17**.  
+Migrations run automatically on startup. Current schema version: **18**.  
 Details: [`backend golang/migrations/README.md`](backend%20golang/migrations/README.md).
 
 ### 3. Admin panel
@@ -123,7 +122,7 @@ Launcher_app/
 ├── backend golang/          # Go API
 │   ├── handlers/
 │   ├── models/
-│   ├── migrations/          # SQL migrations (v1–v17)
+│   ├── migrations/          # SQL migrations (v1–v18)
 │   ├── services/            # MinIO, etc.
 │   └── main.go
 ├── frontendnextjs/          # Admin (Next.js)
@@ -137,7 +136,6 @@ Launcher_app/
 2. **Library**
    - Portable → **Install** / **Launch** / **Update**
    - Installer → **Run installer** / **Launch** (absolute `installer_launch_path`)
-   - URL → **Open** (browser); no local binary download
 3. **Remove from device** — uninstall/clear local state; library entry can remain.
 4. **Remove from library** — drop bookmark; does not always delete local files (see client prompts).
 

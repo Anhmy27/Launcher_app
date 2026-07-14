@@ -17,7 +17,6 @@ type AppVersion struct {
 	FileHash    string     `gorm:"type:varchar(255)" json:"file_hash"`
 	ManifestURL string     `gorm:"column:manifest_url;type:varchar(500)" json:"manifest_url"`
 	DistributionType   string `gorm:"type:varchar(20);not null;default:'portable'" json:"distribution_type"`
-	LaunchURL          string `gorm:"type:varchar(1000)" json:"launch_url"`
 	InstallerKind      string `gorm:"type:varchar(20)" json:"installer_kind"`
 	InstallerSilentArgs string `gorm:"type:varchar(1000)" json:"installer_silent_args"`
 	InstallerLaunchPath string `gorm:"type:varchar(1000)" json:"installer_launch_path"`

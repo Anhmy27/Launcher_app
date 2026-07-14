@@ -1,14 +1,12 @@
 import apiClient from './api';
 import type { App, AppVersion } from './api';
 import { tauriCommands } from './tauri';
-import { open as openExternal } from '@tauri-apps/plugin-shell';
 import {
   INSTALL_STATE_FILE,
   getDistributionType,
   hasDistributionMismatch,
   isInstallerExitSuccess,
   isInstallerVersion,
-  isUrlVersion,
   toLocalPath,
   type DistributionType,
   type InstallState,
@@ -32,7 +30,7 @@ export interface Manifest {
   files: ManifestFile[];
   total_size: number;
   created_at: string;
-  distribution_type?: 'portable' | 'installer' | 'url';
+  distribution_type?: 'portable' | 'installer';
   installer_kind?: string;
   installer_silent_args?: string;
   installer_launch_path?: string;
@@ -131,31 +129,6 @@ async function clearStaleInstallIfMismatch(
   return false;
 }
 
-async function recordUrlOpen(_app: App, version: AppVersion): Promise<void> {
-  let serverDownloadId: string | undefined;
-  try {
-    const download = await apiClient.startDownload(version.id);
-    serverDownloadId = download.id;
-  } catch {
-    return;
-  }
-
-  const detail = JSON.stringify({
-    stage: 'completed',
-    file_name: version.launch_url || 'Opened URL',
-    progress: 100,
-    downloaded_files: 0,
-    total_files: 0,
-    download_path: '',
-  });
-
-  try {
-    await apiClient.updateDownloadStatus(serverDownloadId, 'completed', 0, detail);
-  } catch {
-    // ignore
-  }
-}
-
 async function readLocalInstallState(installDir: string): Promise<InstallState | null> {
   const installStatePath = toLocalPath(installDir, INSTALL_STATE_FILE);
   try {
@@ -197,23 +170,9 @@ class DownloadManager {
     this.notify();
   }
 
-  async openUrlApp(app: App, version: AppVersion) {
-    if (!version.launch_url) {
-      throw new Error('No launch URL configured for this app');
-    }
-    await openExternal(version.launch_url);
-    await syncDeviceVersion(app.id, version.version_code, version.version_name);
-    await recordUrlOpen(app, version);
-  }
-
   async startDownload(app: App, version: AppVersion) {
     const key = `${app.id}-${version.id}`;
     let serverDownloadId: string | undefined;
-
-    if (isUrlVersion(version)) {
-      await this.openUrlApp(app, version);
-      return;
-    }
 
     const existing = this.downloads.get(key);
     if (existing && isDownloadInProgress(existing)) {

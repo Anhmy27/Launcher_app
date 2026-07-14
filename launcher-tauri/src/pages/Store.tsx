@@ -1,7 +1,6 @@
 import { useState, useEffect } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion } from "../lib/api";
-import { isUrlVersion } from "../lib/distribution";
 import { useLocale } from "../context/LocaleContext";
 import "./Store.css";
 
@@ -62,8 +61,7 @@ export default function Store({ onNavigate }: StoreProps) {
     }
   };
 
-  const formatSize = (bytes: number, version?: AppVersion) => {
-    if (isUrlVersion(version)) return t.webLink;
+  const formatSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
@@ -82,7 +80,6 @@ export default function Store({ onNavigate }: StoreProps) {
 
   if (selectedApp) {
     const latestVersion = versions[0];
-    const isUrl = isUrlVersion(latestVersion);
     return (
       <div className="store-detail">
         <button className="back-btn" onClick={() => setSelectedApp(null)}>
@@ -107,10 +104,7 @@ export default function Store({ onNavigate }: StoreProps) {
               <div className="detail-meta">
                 <span>{t.version}: {latestVersion.version_name}</span>
                 <span>{t.type}: {distLabel(latestVersion.distribution_type)}</span>
-                <span>{t.size}: {formatSize(latestVersion.file_size, latestVersion)}</span>
-                {isUrl && latestVersion.launch_url && (
-                  <span>URL: {latestVersion.launch_url}</span>
-                )}
+                <span>{t.size}: {formatSize(latestVersion.file_size)}</span>
               </div>
             )}
           </div>
@@ -139,7 +133,7 @@ export default function Store({ onNavigate }: StoreProps) {
                     <span className="required-badge"> · {t.required}</span>
                   )}
                   <span className="version-size">
-                    {formatSize(v.file_size, v)} · {distLabel(v.distribution_type)}
+                    {formatSize(v.file_size)} · {distLabel(v.distribution_type)}
                   </span>
                 </div>
                 <span className="version-date">

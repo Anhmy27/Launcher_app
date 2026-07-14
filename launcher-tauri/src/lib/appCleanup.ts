@@ -7,7 +7,6 @@ import {
   hasDistributionMismatch,
   isInstallerExitSuccess,
   isInstallerVersion,
-  isUrlVersion,
   toLocalPath,
   type DistributionType,
   type InstallState,
@@ -167,12 +166,6 @@ export async function uninstallAppFromDevice(
     removedLocalCache: false,
     removedDeviceSync: false,
   };
-
-  if (isUrlVersion(latestVersion)) {
-    await deleteDeviceAppStatus(appId);
-    result.removedDeviceSync = true;
-    return result;
-  }
 
   const localMeta = await readLocalInstallMetadata(appSlug);
   const versionForUninstall = mergeVersionMetadata(latestVersion, localMeta);

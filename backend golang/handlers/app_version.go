@@ -10,7 +10,6 @@ import (
 	"io"
 	"log"
 	"net/http"
-	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -70,8 +69,7 @@ type CreateVersionRequest struct {
 	Description string `form:"description"`
 	IsRequired  bool   `form:"is_required"`
 	EntryPoint  string `form:"entry_point"` // optional – auto-detected if empty
-	DistributionType     string `form:"distribution_type"` // portable|installer|url (default portable)
-	LaunchURL            string `form:"launch_url"`        // required for url
+	DistributionType     string `form:"distribution_type"` // portable|installer (default portable)
 	InstallerSilentArgs    string `form:"installer_silent_args"`
 	InstallerLaunchPath    string `form:"installer_launch_path"`
 	InstallerProductCode   string `form:"installer_product_code"`
@@ -88,7 +86,6 @@ type UpdateVersionRequest struct {
 // Create - POST /api/apps/:id/versions (multipart/form-data with file)
 //
 // Accepts a single build file (exe, msi, …) **or** a ZIP archive.
-// Also supports URL-only releases (no file upload) when distribution_type=url.
 //
 //   - ZIP  → extracted; every file is uploaded individually.
 //   - Other → uploaded as a single-file version.
@@ -116,8 +113,8 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	if distType == "" {
 		distType = "portable"
 	}
-	if distType != "portable" && distType != "installer" && distType != "url" {
-		utils.Error(c, http.StatusBadRequest, "Invalid distribution_type (must be portable|installer|url)")
+	if distType != "portable" && distType != "installer" {
+		utils.Error(c, http.StatusBadRequest, "Invalid distribution_type (must be portable|installer)")
 		return
 	}
 
@@ -135,47 +132,6 @@ func (h *AppVersionHandler) Create(c *gin.Context) {
 	}
 	if existingCount > 0 {
 		utils.Error(c, http.StatusConflict, "version_code already exists for this app")
-		return
-	}
-
-	// URL-only release: no file upload, no manifest
-	if distType == "url" {
-		launchURL := strings.TrimSpace(req.LaunchURL)
-		if launchURL == "" {
-			utils.Error(c, http.StatusBadRequest, "launch_url is required for distribution_type=url")
-			return
-		}
-		if !isValidLaunchURL(launchURL) {
-			utils.Error(c, http.StatusBadRequest, "launch_url must start with http:// or https://")
-			return
-		}
-
-		appUUID, _ := uuid.Parse(appID)
-		version := models.AppVersion{
-			ID:               uuid.New(),
-			AppID:            appUUID,
-			VersionName:      req.VersionName,
-			VersionCode:      req.VersionCode,
-			Description:      req.Description,
-			FileSize:         0,
-			FileHash:         "",
-			ManifestURL:      "",
-			DistributionType: "url",
-			LaunchURL:        launchURL,
-			IsReleased:       false,
-			IsRequired:       req.IsRequired,
-		}
-
-		if err := database.DB.Create(&version).Error; err != nil {
-			if strings.Contains(err.Error(), "duplicate") || strings.Contains(err.Error(), "UNIQUE") {
-				utils.Error(c, http.StatusConflict, "version_code already exists for this app")
-				return
-			}
-			utils.Error(c, http.StatusInternalServerError, "Failed to create version")
-			return
-		}
-
-		utils.Success(c, http.StatusCreated, version)
 		return
 	}
 
@@ -586,15 +542,6 @@ func isZipEntryPointCandidate(filename, distType string) bool {
 	return ext == ".exe"
 }
 
-func isValidLaunchURL(raw string) bool {
-	parsed, err := url.Parse(strings.TrimSpace(raw))
-	if err != nil {
-		return false
-	}
-	scheme := strings.ToLower(parsed.Scheme)
-	return (scheme == "http" || scheme == "https") && parsed.Host != ""
-}
-
 func validateEntryPointForDistribution(distType, entryPoint string) error {
 	lower := strings.ToLower(entryPoint)
 	switch distType {
@@ -620,13 +567,6 @@ func validateVersionForRelease(version models.AppVersion) error {
 	}
 
 	switch distType {
-	case "url":
-		if strings.TrimSpace(version.LaunchURL) == "" {
-			return fmt.Errorf("launch_url is required before releasing a URL version")
-		}
-		if !isValidLaunchURL(version.LaunchURL) {
-			return fmt.Errorf("launch_url must start with http:// or https://")
-		}
 	case "installer":
 		if strings.TrimSpace(version.InstallerLaunchPath) == "" {
 			return fmt.Errorf("installer_launch_path is required before releasing an installer version")
@@ -641,6 +581,8 @@ func validateVersionForRelease(version models.AppVersion) error {
 		if strings.TrimSpace(version.ManifestURL) == "" {
 			return fmt.Errorf("manifest is required before releasing a portable version")
 		}
+	default:
+		return fmt.Errorf("invalid distribution_type (must be portable|installer)")
 	}
 	return nil
 }

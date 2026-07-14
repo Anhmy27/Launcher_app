@@ -49,10 +49,6 @@ function statusLabel(
 
   if (detail.stage === "running_installer") return t.runningInstaller;
 
-  if (detail.file_name?.startsWith("http://") || detail.file_name?.startsWith("https://")) {
-    return t.openedWebLink;
-  }
-
   if (item.download_status === "completed") return t.installedOk;
   if (item.download_status === "failed") return t.failedOk;
 

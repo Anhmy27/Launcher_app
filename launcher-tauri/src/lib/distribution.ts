@@ -1,13 +1,9 @@
 import type { AppVersion } from './api';
 
-export type DistributionType = 'portable' | 'installer' | 'url';
+export type DistributionType = 'portable' | 'installer';
 
 export function getDistributionType(version?: { distribution_type?: DistributionType }): DistributionType {
   return version?.distribution_type || 'portable';
-}
-
-export function isUrlVersion(version?: { distribution_type?: DistributionType }): boolean {
-  return getDistributionType(version) === 'url';
 }
 
 export function isInstallerVersion(version?: { distribution_type?: DistributionType }): boolean {
@@ -40,8 +36,6 @@ export function getBlockingRequiredUpdate(
 
 export function distributionLabel(version?: AppVersion): string {
   switch (getDistributionType(version)) {
-    case 'url':
-      return 'Web link';
     case 'installer':
       return 'Installer';
     default:

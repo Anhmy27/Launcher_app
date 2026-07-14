@@ -31,8 +31,7 @@ interface AppVersion {
   release_date: string;
   file_hash: string;
   manifest_url: string;
-  distribution_type?: "portable" | "installer" | "url";
-  launch_url?: string;
+  distribution_type?: "portable" | "installer";
   installer_kind?: string;
   installer_silent_args?: string;
   installer_launch_path?: string;
@@ -56,9 +55,8 @@ export default function AppDetailPage() {
   const [isRequired, setIsRequired] = useState(false);
   const [entryPoint, setEntryPoint] = useState("");
   const [distributionType, setDistributionType] = useState<
-    "portable" | "installer" | "url"
+    "portable" | "installer"
   >("portable");
-  const [launchUrl, setLaunchUrl] = useState("");
   const [installerSilentArgs, setInstallerSilentArgs] = useState("");
   const [installerLaunchPath, setInstallerLaunchPath] = useState("");
   const [installerProductCode, setInstallerProductCode] = useState("");
@@ -71,7 +69,6 @@ export default function AppDetailPage() {
   const uploadValidationError = validateUploadForm({
     distributionType,
     uploadingFile,
-    launchUrl,
     entryPoint,
     installerLaunchPath,
     installerProductCode,
@@ -108,7 +105,6 @@ export default function AppDetailPage() {
     const validationError = validateUploadForm({
       distributionType,
       uploadingFile,
-      launchUrl,
       entryPoint,
       installerLaunchPath,
       installerProductCode,
@@ -124,7 +120,7 @@ export default function AppDetailPage() {
       const newCode = nextVersionCode(versions);
       const formData = new FormData();
       formData.append("distribution_type", distributionType);
-      if (distributionType !== "url" && uploadingFile) {
+      if (uploadingFile) {
         formData.append("file", uploadingFile);
       }
       formData.append("version_code", String(newCode));
@@ -132,9 +128,6 @@ export default function AppDetailPage() {
       formData.append("is_required", String(isRequired));
       if (entryPoint.trim()) {
         formData.append("entry_point", entryPoint.trim());
-      }
-      if (distributionType === "url") {
-        formData.append("launch_url", launchUrl.trim());
       }
       if (distributionType === "installer") {
         if (installerSilentArgs.trim()) {
@@ -158,7 +151,6 @@ export default function AppDetailPage() {
       setIsRequired(false);
       setEntryPoint("");
       setDistributionType("portable");
-      setLaunchUrl("");
       setInstallerSilentArgs("");
       setInstallerLaunchPath("");
       setInstallerProductCode("");
@@ -265,7 +257,7 @@ export default function AppDetailPage() {
                 value={distributionType}
                 onChange={(e) =>
                   setDistributionType(
-                    e.target.value as "portable" | "installer" | "url",
+                    e.target.value as "portable" | "installer",
                   )
                 }
                 className="admin-input text-sm"
@@ -273,30 +265,10 @@ export default function AppDetailPage() {
               >
                 <option value="portable">{t.portable}</option>
                 <option value="installer">{t.installer}</option>
-                <option value="url">{t.url}</option>
               </select>
             </div>
 
-            {distributionType === "url" && (
-              <div>
-                <label className="admin-label">
-                  Launch URL
-                </label>
-                <input
-                  type="url"
-                  value={launchUrl}
-                  onChange={(e) => setLaunchUrl(e.target.value)}
-                  placeholder="https://example.com"
-                  className="admin-input text-sm"
-                  disabled={isUploading}
-                />
-                <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
-                  Launcher will open this URL (no file upload).
-                </p>
-              </div>
-            )}
-
-            <div style={{ display: distributionType === "url" ? "none" : "block" }}>
+            <div>
               <label className="admin-label">
                 Build File (.exe, .msi, .zip)
               </label>
@@ -308,24 +280,22 @@ export default function AppDetailPage() {
                 disabled={isUploading}
               />
             </div>
-            {distributionType !== "url" && (
-              <div>
-                <label className="admin-label">
-                  Entry Point (optional)
-                </label>
-                <input
-                  type="text"
-                  value={entryPoint}
-                  onChange={(e) => setEntryPoint(e.target.value)}
-                  placeholder="e.g., app.exe (auto-detected if empty)"
-                  className="admin-input text-sm"
-                  disabled={isUploading}
-                />
-                <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
-                  Main executable inside the build. Auto-detected for .exe/.msi.
-                </p>
-              </div>
-            )}
+            <div>
+              <label className="admin-label">
+                Entry Point (optional)
+              </label>
+              <input
+                type="text"
+                value={entryPoint}
+                onChange={(e) => setEntryPoint(e.target.value)}
+                placeholder="e.g., app.exe (auto-detected if empty)"
+                className="admin-input text-sm"
+                disabled={isUploading}
+              />
+              <p className="text-xs mt-1" style={{ color: "var(--admin-text-muted)" }}>
+                Main executable inside the build. Auto-detected for .exe/.msi.
+              </p>
+            </div>
 
             {distributionType === "installer" && (
               <>
@@ -489,24 +459,12 @@ export default function AppDetailPage() {
                           Manifest
                         </a>
                       )}
-                      {!v.manifest_url && v.launch_url && (
-                        <a
-                          href={v.launch_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          className="admin-link text-sm"
-                        >
-                          Open URL
-                        </a>
+                      {!v.manifest_url && (
+                        <span style={{ color: "var(--admin-text-muted)" }}>—</span>
                       )}
                     </td>
                     <td className="text-sm">
                       <div>{v.distribution_type || "portable"}</div>
-                      {v.distribution_type === "url" && v.launch_url && (
-                        <div className="text-xs truncate max-w-[200px]" style={{ color: "var(--admin-text-muted)" }} title={v.launch_url}>
-                          {v.launch_url}
-                        </div>
-                      )}
                       {v.distribution_type === "installer" && (
                         <div className="text-xs space-y-0.5" style={{ color: "var(--admin-text-muted)" }}>
                           {v.installer_kind && <div>Kind: {v.installer_kind}</div>}

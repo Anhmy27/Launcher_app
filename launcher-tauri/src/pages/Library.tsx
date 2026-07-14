@@ -3,8 +3,7 @@ import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
-import downloadManager, { isDownloadInProgress } from "../lib/downloadManager";
-import { open as openExternal } from "@tauri-apps/plugin-shell";
+import { isDownloadInProgress } from "../lib/downloadManager";
 import { useLocale } from "../context/LocaleContext";
 import {
   INSTALL_STATE_FILE,
@@ -12,7 +11,6 @@ import {
   getDistributionType,
   hasDistributionMismatch,
   isInstallerVersion,
-  isUrlVersion,
   toLocalPath,
   type InstallState,
 } from "../lib/distribution";
@@ -47,7 +45,7 @@ interface AppInstallStatus {
   canLaunch: boolean;
   canUninstall: boolean;
   hasDeviceSync: boolean;
-  distributionType: "portable" | "installer" | "url";
+  distributionType: "portable" | "installer";
 }
 
 export default function Library({ downloads, onStartDownload }: LibraryProps) {
@@ -117,24 +115,6 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
       const localDist = localMeta?.distribution_type ?? null;
 
       try {
-        if (isUrlVersion(latestVersion)) {
-          const hasStaleLocal = Boolean(localMeta);
-          statuses.set(appId, {
-            isInstalled: hasDeviceSync,
-            latestVersionCode: latestVersion.version_code,
-            latestVersionName: latestVersion.version_name,
-            hasUpdate: false,
-            needsReinstall: false,
-            hasStaleLocal,
-            forceUpdateRequired: false,
-            canLaunch: Boolean(latestVersion.launch_url),
-            canUninstall: hasDeviceSync || hasStaleLocal,
-            hasDeviceSync,
-            distributionType: "url",
-          });
-          continue;
-        }
-
         if (hasDistributionMismatch(localDist, distType)) {
           statuses.set(appId, {
             isInstalled: false,
@@ -301,23 +281,6 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
         return;
       }
 
-      if (latestVersion?.distribution_type === "url" && latestVersion.launch_url) {
-        await openExternal(latestVersion.launch_url);
-        const deviceId = localStorage.getItem("deviceId");
-        if (deviceId) {
-          try {
-            await apiClient.syncDeviceApps(deviceId, [{
-              app_id: latestVersion.app_id,
-              installed_version_code: latestVersion.version_code,
-              installed_version_name: latestVersion.version_name,
-            }]);
-          } catch { /* ignore */ }
-        }
-        setMessage(`Opening ${appName}...`);
-        await checkFileStatuses();
-        return;
-      }
-
       if (latestVersion?.distribution_type === "installer") {
         const localMeta = await readLocalInstallMetadata(appSlug);
         const launchPath =
@@ -418,7 +381,6 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     appSlug: string,
     latestVersion?: AppVersion,
   ) => {
-    const isUrl = isUrlVersion(latestVersion);
     const isInstaller = isInstallerVersion(latestVersion);
 
     const localMeta = isInstaller ? await readLocalInstallMetadata(appSlug) : null;
@@ -432,9 +394,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     const partialNote = getPartialUninstallNote(versionForPrompt);
 
     let prompt: string;
-    if (isUrl) {
-      prompt = t.uninstallUrl.replace("{name}", appName);
-    } else if (isInstaller && systemUninstall) {
+    if (isInstaller && systemUninstall) {
       prompt = t.uninstallWindows.replace("{name}", appName);
     } else if (partialNote) {
       prompt = `${partialNote}\n\n${t.uninstallLocal.replace("{name}", appName)}`;
@@ -447,9 +407,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     try {
       const result = await uninstallAppFromDevice(appSlug, appId, latestVersion);
 
-      if (isUrl) {
-        setMessage(`${appName} ${t.removedFromDevice}`);
-      } else if (result.removedSystemApp) {
+      if (result.removedSystemApp) {
         setMessage(`${appName} ${t.uninstalledWindows}`);
       } else {
         setMessage(`${appName} ${t.localFilesRemoved}`);
@@ -493,18 +451,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
     }
   };
 
-  const handleOpenUrl = async (app: App, version: AppVersion) => {
-    try {
-      await downloadManager.openUrlApp(app, version);
-      setMessage(`${t.opening} ${app.name}...`);
-      await checkFileStatuses();
-    } catch (err: unknown) {
-      setMessage(err instanceof Error ? err.message : t.failedOpen);
-    }
-  };
-
-  const formatSize = (bytes: number, version?: AppVersion) => {
-    if (isUrlVersion(version)) return t.webLink;
+  const formatSize = (bytes: number) => {
     if (bytes === 0) return "0 B";
     const k = 1024;
     const sizes = ["B", "KB", "MB", "GB"];
@@ -564,19 +511,13 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                       <>
                         <span>v{latestVersion.version_name}</span>
                         <span className="dot">·</span>
-                        <span>{formatSize(latestVersion.file_size, latestVersion)}</span>
+                        <span>{formatSize(latestVersion.file_size)}</span>
                         <span className="dot">·</span>
                         <span>{distLabel(latestVersion.distribution_type)}</span>
                       </>
                     )}
-                    {status?.hasDeviceSync && isUrlVersion(latestVersion) && (
-                      <span className="installed-badge">🔗 {t.onThisDevice}</span>
-                    )}
                     {status?.needsReinstall && (
                       <span className="update-badge">⚠ {t.needsReinstall}</span>
-                    )}
-                    {status?.hasStaleLocal && isUrlVersion(latestVersion) && (
-                      <span className="update-badge">⚠ {t.staleLocalFiles}</span>
                     )}
                     {status?.forceUpdateRequired && (
                       <span className="update-badge">⛔ {t.forceUpdate} v{status.forceUpdateVersionName}</span>
@@ -586,7 +527,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                         ℹ️ {t.partialUninstall}
                       </span>
                     )}
-                    {status?.isInstalled && !status?.hasUpdate && !isUrlVersion(latestVersion) && (
+                    {status?.isInstalled && !status?.hasUpdate && (
                       <span className="installed-badge">
                         ✅ {t.installed}
                         {status.localVersionName
@@ -627,20 +568,9 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                   )}
                 </div>
                 <div className="library-actions">
-                  {/* Not installed, not in progress → Install button */}
-                  {latestVersion && isUrlVersion(latestVersion) && app && (
-                    <button
-                      className="install-btn"
-                      onClick={() => handleOpenUrl(app, latestVersion)}
-                    >
-                      ↗ {t.open}
-                    </button>
-                  )}
-
                   {(!status?.isInstalled || status?.needsReinstall) &&
                     !isDownloadInProgress(dl) &&
-                    latestVersion &&
-                    !isUrlVersion(latestVersion) && (
+                    latestVersion && (
                     <button
                       className="install-btn"
                       onClick={() => app && onStartDownload(app, latestVersion)}
@@ -694,7 +624,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                   )}
 
                   {/* Installed → Open folder */}
-                  {status?.isInstalled && status.installDir && !isUrlVersion(latestVersion) && (
+                  {status?.isInstalled && status.installDir && (
                     <button
                       className="folder-btn"
                       onClick={() => handleOpenFolder(status.installDir!)}
@@ -716,14 +646,7 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
                           latestVersion,
                         )
                       }
-                      title={
-                        status?.partialUninstallNote ||
-                        (                        isUrlVersion(latestVersion)
-                          ? t.removeFromDevice
-                          : isInstallerVersion(latestVersion) && canSystemUninstall(latestVersion)
-                            ? t.removeFromDevice
-                            : t.removeFromDevice)
-                      }
+                      title={status?.partialUninstallNote || t.removeFromDevice}
                     >
                       🗑
                     </button>
