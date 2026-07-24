@@ -77,6 +77,28 @@ class ApiClient {
     return this.token || localStorage.getItem('access_token');
   }
 
+  getDevicesWebSocketUrl(): string | null {
+    if (typeof window === 'undefined') return null;
+    const configuredWsBase = process.env.NEXT_PUBLIC_WS_BASE_URL;
+    const wsBase = configuredWsBase && configuredWsBase.trim().length > 0
+      ? configuredWsBase.trim().replace(/\/+$/, "")
+      : (() => {
+          const apiBase = (process.env.NEXT_PUBLIC_API_BASE_URL || API_BASE_URL).replace(/\/+$/, "");
+          const httpBase = apiBase.endsWith("/api") ? apiBase.slice(0, -4) : apiBase;
+          return httpBase.replace(/^http/i, "ws");
+        })();
+
+    return `${wsBase}/api/ws/devices`;
+  }
+
+  getDevicesWebSocketProtocols(): string[] {
+    const token = this.getToken();
+    if (!token) return [];
+    // Browser WebSocket does not allow custom Authorization headers.
+    // We pass JWT in subprotocols instead of URL query params.
+    return ['launcher-admin-v1', token];
+  }
+
   clearToken() {
     this.token = null;
     if (typeof window !== 'undefined') {

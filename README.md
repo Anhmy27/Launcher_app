@@ -10,7 +10,7 @@ A desktop application launcher platform with admin portal, Go API, and Tauri cli
   - **Installer** — download MSI/Setup, run installer, launch via absolute path after install
 - **Incremental updates** — manifest + SHA-256 file comparison; only changed files are downloaded
 - **Device install sync** — track which apps are installed on which device (`device_app_status`)
-- **Presence monitoring** — track who is signed in on which machine and which launcher apps are running (`devices.current_user_id` + `device_app_sessions`); client heartbeat (~45s) with PID tracking; admin Devices page auto-refreshes (~20s)
+- **Presence monitoring** — track who is signed in on which machine and which launcher apps are running (`devices.current_user_id` + `device_app_sessions`); client heartbeat (~45s) with PID tracking; admin Devices page receives realtime snapshots via WebSocket
 - **Admin panel** — manage apps, versions, users, and devices; light/dark theme; EN/VI locale
 - **Desktop client** — Tauri + React; light/dark theme; EN/VI locale
 
@@ -56,14 +56,15 @@ Portable and installer installs live under:
 
 The client does not scan the disk; it resolves install status by known path + slug.
 
-### Presence flow (no WebSocket)
+### Presence flow (heartbeat + realtime WebSocket)
 
 1. On login, client registers/updates the device and sets `current_user_id`.
 2. While the launcher is open, client sends `POST /devices/:id/heartbeat` about every 45s with `active_apps` (app id + PID).
 3. Backend reconciles `device_app_sessions` (open / refresh / close).
 4. A device is **online** if `last_seen` is within ~2 minutes.
 5. On logout, client calls `POST /devices/:id/logout` (clear user + close sessions). Closing the window without logout relies on heartbeat timeout.
-6. Admin Devices page polls `GET /devices` about every 20s.
+6. Admin page loads an initial snapshot via `GET /devices`, then subscribes to realtime updates on `GET /api/ws/devices` using WebSocket subprotocols (`launcher-admin-v1`, `<access_token>`).
+7. Backend also emits periodic snapshots (~30s) so clients observe heartbeat-timeout offline transitions without manual refresh.
 
 ## Prerequisites
 
@@ -179,6 +180,7 @@ Presence-related endpoints (auth required; admin devices need admin role):
 - `POST /api/devices/:id/logout` — clear user and close open sessions
 - `GET /api/devices` — admin list with online status and running apps
 - `GET /api/devices/:id` — admin device detail
+- `GET /api/ws/devices` — admin realtime presence stream (WebSocket, token via subprotocol)
 
 ## Migrations (manual)
 

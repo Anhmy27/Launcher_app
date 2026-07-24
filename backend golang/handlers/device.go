@@ -4,23 +4,41 @@ import (
 	"net/http"
 	"time"
 
+	"backend/config"
 	"backend/database"
 	"backend/models"
+	"backend/realtime"
 	"backend/utils"
 
 	"github.com/gin-gonic/gin"
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
-type DeviceHandler struct{}
+type DeviceHandler struct {
+	Config *config.Config
+}
 
-func NewDeviceHandler() *DeviceHandler {
-	return &DeviceHandler{}
+func NewDeviceHandler(cfg *config.Config) *DeviceHandler {
+	return &DeviceHandler{Config: cfg}
 }
 
 // onlineThreshold: a device is considered online if its last heartbeat is
 // within this window. The client sends heartbeats roughly every 45s.
 const onlineThreshold = 2 * time.Minute
+const offlineSweepInterval = 30 * time.Second
+
+var deviceWSUpgrader = websocket.Upgrader{
+	ReadBufferSize:  1024,
+	WriteBufferSize: 1024,
+	Subprotocols:    []string{"launcher-admin-v1"},
+	CheckOrigin: func(r *http.Request) bool {
+		// Keep permissive for local development; tighten this in production
+		// with explicit allow-list if needed.
+		return true
+	},
+}
 
 // Register request
 type RegisterDeviceRequest struct {
@@ -53,6 +71,54 @@ func currentUserID(c *gin.Context) *uuid.UUID {
 		return &id
 	}
 	return nil
+}
+
+func (h *DeviceHandler) parseAdminAccessToken(tokenStr string) (*Claims, error) {
+	claims := &Claims{}
+	token, err := jwt.ParseWithClaims(tokenStr, claims, func(token *jwt.Token) (interface{}, error) {
+		return []byte(h.Config.JWT.Secret), nil
+	})
+	if err != nil || !token.Valid {
+		return nil, err
+	}
+	if claims.TokenType != "access" {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	if claims.Role != models.RoleAdmin {
+		return nil, jwt.ErrTokenInvalidClaims
+	}
+	return claims, nil
+}
+
+// SubscribeDevicesWS - GET /api/ws/devices
+// JWT is sent via websocket subprotocols: ["launcher-admin-v1", "<token>"].
+// Realtime channel for admin device presence updates.
+func (h *DeviceHandler) SubscribeDevicesWS(c *gin.Context) {
+	token := ""
+	protocols := websocket.Subprotocols(c.Request)
+	if len(protocols) >= 2 && protocols[0] == "launcher-admin-v1" {
+		token = protocols[1]
+	}
+	// Backward-compatible fallback while old frontend caches may still connect
+	// with token in query.
+	if token == "" {
+		token = c.Query("token")
+	}
+	if token == "" {
+		utils.Error(c, http.StatusUnauthorized, "Missing websocket token")
+		return
+	}
+	if _, err := h.parseAdminAccessToken(token); err != nil {
+		utils.Error(c, http.StatusUnauthorized, "Invalid websocket token")
+		return
+	}
+
+	conn, err := deviceWSUpgrader.Upgrade(c.Writer, c.Request, nil)
+	if err != nil {
+		return
+	}
+	realtime.DeviceHub.AddConnection(conn)
+	h.publishPresenceSnapshot()
 }
 
 // Sync apps request
@@ -98,6 +164,7 @@ func (h *DeviceHandler) Register(c *gin.Context) {
 				return
 			}
 			database.DB.First(&existingDevice, "id = ?", req.DeviceID)
+			h.publishPresenceSnapshot()
 			utils.Success(c, http.StatusOK, existingDevice)
 			return
 		}
@@ -119,6 +186,7 @@ func (h *DeviceHandler) Register(c *gin.Context) {
 			return
 		}
 		database.DB.First(&existingDevice, "id = ?", existingDevice.ID)
+		h.publishPresenceSnapshot()
 		utils.Success(c, http.StatusOK, existingDevice)
 		return
 	}
@@ -140,6 +208,7 @@ func (h *DeviceHandler) Register(c *gin.Context) {
 		return
 	}
 
+	h.publishPresenceSnapshot()
 	utils.Success(c, http.StatusCreated, device)
 }
 
@@ -176,6 +245,7 @@ func (h *DeviceHandler) Heartbeat(c *gin.Context) {
 	// Reconcile running app sessions with what the client reports.
 	reconcileSessions(device.ID, userID, req.ActiveApps, now)
 
+	h.publishPresenceSnapshot()
 	utils.Success(c, http.StatusOK, gin.H{"message": "Heartbeat received"})
 }
 
@@ -246,6 +316,7 @@ func (h *DeviceHandler) Logout(c *gin.Context) {
 		"last_seen":       now,
 	})
 
+	h.publishPresenceSnapshot()
 	utils.Success(c, http.StatusOK, gin.H{"message": "Device logged out"})
 }
 
@@ -363,27 +434,87 @@ func buildRunningApps(deviceID uuid.UUID, online bool) []RunningAppInfo {
 	return running
 }
 
-// GetAllDevices - GET /api/admin/devices
-func (h *DeviceHandler) GetAllDevices(c *gin.Context) {
+func (h *DeviceHandler) loadDevicePresence() ([]DevicePresence, error) {
 	var devices []models.Device
-
 	if err := database.DB.
 		Preload("CurrentUser").
 		Order("last_seen DESC NULLS LAST").
 		Find(&devices).Error; err != nil {
-		utils.Error(c, http.StatusInternalServerError, "Failed to fetch devices")
-		return
+		return nil, err
+	}
+
+	if len(devices) == 0 {
+		return []DevicePresence{}, nil
+	}
+
+	deviceIDs := make([]uuid.UUID, 0, len(devices))
+	for _, d := range devices {
+		deviceIDs = append(deviceIDs, d.ID)
+	}
+
+	var sessions []models.DeviceAppSession
+	database.DB.
+		Where("device_id IN ? AND ended_at IS NULL", deviceIDs).
+		Preload("Application").
+		Order("started_at ASC").
+		Find(&sessions)
+
+	runningByDevice := make(map[uuid.UUID][]RunningAppInfo, len(deviceIDs))
+	for _, s := range sessions {
+		runningByDevice[s.DeviceID] = append(runningByDevice[s.DeviceID], RunningAppInfo{
+			AppID:     s.AppID,
+			Name:      s.Application.Name,
+			Slug:      s.Application.Slug,
+			IconURL:   s.Application.IconURL,
+			PID:       s.PID,
+			StartedAt: s.StartedAt,
+		})
 	}
 
 	cutoff := time.Now().Add(-onlineThreshold)
 	result := make([]DevicePresence, 0, len(devices))
 	for _, d := range devices {
 		online := d.LastSeen != nil && d.LastSeen.After(cutoff)
+		running := []RunningAppInfo{}
+		if online {
+			running = runningByDevice[d.ID]
+		}
 		result = append(result, DevicePresence{
 			Device:      d,
 			IsOnline:    online,
-			RunningApps: buildRunningApps(d.ID, online),
+			RunningApps: running,
 		})
+	}
+	return result, nil
+}
+
+func (h *DeviceHandler) publishPresenceSnapshot() {
+	presence, err := h.loadDevicePresence()
+	if err != nil {
+		return
+	}
+	_ = realtime.DeviceHub.Publish("devices.snapshot", presence)
+}
+
+// StartPresenceBroadcaster emits periodic snapshots so admin clients can
+// observe devices turning offline when heartbeat timeout is reached.
+func StartPresenceBroadcaster(cfg *config.Config) {
+	h := NewDeviceHandler(cfg)
+	go func() {
+		ticker := time.NewTicker(offlineSweepInterval)
+		defer ticker.Stop()
+		for range ticker.C {
+			h.publishPresenceSnapshot()
+		}
+	}()
+}
+
+// GetAllDevices - GET /api/admin/devices
+func (h *DeviceHandler) GetAllDevices(c *gin.Context) {
+	result, err := h.loadDevicePresence()
+	if err != nil {
+		utils.Error(c, http.StatusInternalServerError, "Failed to fetch devices")
+		return
 	}
 
 	utils.Success(c, http.StatusOK, result)
@@ -462,6 +593,7 @@ func (h *DeviceHandler) UpdateDevice(c *gin.Context) {
 	}
 
 	database.DB.First(&device, "id = ?", deviceID)
+	h.publishPresenceSnapshot()
 	utils.Success(c, http.StatusOK, device)
 }
 
@@ -497,5 +629,6 @@ func (h *DeviceHandler) DeleteDevice(c *gin.Context) {
 		return
 	}
 
+	h.publishPresenceSnapshot()
 	utils.Success(c, http.StatusOK, gin.H{"message": "Device deleted successfully"})
 }

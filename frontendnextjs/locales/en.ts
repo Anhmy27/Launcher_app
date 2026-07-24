@@ -136,4 +136,9 @@ export const en = {
   startedAt: "Started",
   never: "Never",
   pid: "PID",
+  realtimeStatus: "Realtime",
+  realtimeLive: "Live",
+  realtimeConnecting: "Connecting",
+  realtimeReconnecting: "Reconnecting",
+  realtimeOffline: "Offline",
 } as const;

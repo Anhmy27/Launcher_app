@@ -6,6 +6,8 @@ import (
 
 	"backend/config"
 	"backend/database"
+	"backend/handlers"
+	"backend/realtime"
 	"backend/routes"
 
 	"github.com/gin-contrib/cors"
@@ -39,6 +41,8 @@ func main() {
 
 	// Setup Gin
 	r := gin.Default()
+	go realtime.DeviceHub.Run()
+	handlers.StartPresenceBroadcaster(cfg)
 
 	// CORS - allow admin frontend & tauri client
 	r.Use(cors.New(cors.Config{

@@ -16,7 +16,7 @@ func Setup(r *gin.Engine, cfg *config.Config) {
 	userAppHandler := handlers.NewUserAppHandler()
 	downloadHandler := handlers.NewDownloadHandler()
 	userHandler := handlers.NewUserHandler()
-	deviceHandler := handlers.NewDeviceHandler()
+	deviceHandler := handlers.NewDeviceHandler(cfg)
 
 	api := r.Group("/api")
 	{
@@ -27,6 +27,7 @@ func Setup(r *gin.Engine, cfg *config.Config) {
 			auth.POST("/login", authHandler.Login)
 			auth.POST("/refresh", authHandler.Refresh)
 		}
+		api.GET("/ws/devices", deviceHandler.SubscribeDevicesWS)
 
 		// ==================== Protected routes ====================
 		protected := api.Group("")

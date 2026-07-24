@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import {
   apiClient,
   DevicePresence,
@@ -8,7 +8,15 @@ import {
 } from "@/lib/api";
 import { useLocale } from "@/lib/locale-context";
 
-const AUTO_REFRESH_MS = 20 * 1000;
+const WS_RECONNECT_MS = 3000;
+
+type RealtimeStatus = "connecting" | "live" | "reconnecting" | "offline";
+
+interface PresenceEvent {
+  type: string;
+  at: string;
+  data: DevicePresence[];
+}
 
 export default function DevicesPage() {
   const { t } = useLocale();
@@ -17,6 +25,8 @@ export default function DevicesPage() {
   const [error, setError] = useState("");
   const [detail, setDetail] = useState<DeviceDetail | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [realtimeStatus, setRealtimeStatus] = useState<RealtimeStatus>("connecting");
+  const reconnectTimerRef = useRef<number | null>(null);
 
   const loadDevices = useCallback(async () => {
     try {
@@ -32,9 +42,80 @@ export default function DevicesPage() {
 
   useEffect(() => {
     loadDevices();
-    const interval = setInterval(loadDevices, AUTO_REFRESH_MS);
-    return () => clearInterval(interval);
   }, [loadDevices]);
+
+  useEffect(() => {
+    let isUnmounted = false;
+    let ws: WebSocket | null = null;
+
+    const applySnapshot = (snapshot: DevicePresence[]) => {
+      setDevices(snapshot);
+      setError("");
+      setIsLoading(false);
+      setDetail((prev) => {
+        if (!prev) return prev;
+        const nextDevice = snapshot.find((d) => d.id === prev.device.id);
+        if (!nextDevice) return prev;
+        return {
+          ...prev,
+          device: nextDevice,
+          is_online: nextDevice.is_online,
+          running_apps: nextDevice.running_apps,
+        };
+      });
+    };
+
+    const connect = (isReconnect: boolean) => {
+      const wsUrl = apiClient.getDevicesWebSocketUrl();
+      const protocols = apiClient.getDevicesWebSocketProtocols();
+      if (!wsUrl || protocols.length === 0) {
+        setRealtimeStatus("offline");
+        return;
+      }
+
+      setRealtimeStatus(isReconnect ? "reconnecting" : "connecting");
+      ws = new WebSocket(wsUrl, protocols);
+
+      ws.onopen = () => {
+        if (isUnmounted) {
+          ws?.close();
+          return;
+        }
+        setRealtimeStatus("live");
+      };
+
+      ws.onmessage = (event) => {
+        try {
+          const message = JSON.parse(event.data) as PresenceEvent;
+          if (message?.type === "devices.snapshot" && Array.isArray(message.data)) {
+            applySnapshot(message.data);
+          }
+        } catch {
+          // Ignore malformed events and keep socket open.
+        }
+      };
+
+      ws.onclose = () => {
+        if (isUnmounted) return;
+        setRealtimeStatus("reconnecting");
+        reconnectTimerRef.current = window.setTimeout(() => {
+          connect(true);
+        }, WS_RECONNECT_MS);
+      };
+    };
+
+    connect(false);
+
+    return () => {
+      isUnmounted = true;
+      setRealtimeStatus("offline");
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
+      ws?.close();
+    };
+  }, []);
 
   const openDetail = async (id: string) => {
     setDetailLoading(true);
@@ -66,6 +147,15 @@ export default function DevicesPage() {
     return d.toLocaleString();
   };
 
+  const realtimeLabel =
+    realtimeStatus === "live"
+      ? t.realtimeLive
+      : realtimeStatus === "reconnecting"
+        ? t.realtimeReconnecting
+        : realtimeStatus === "connecting"
+          ? t.realtimeConnecting
+          : t.realtimeOffline;
+
   const onlineCount = devices.filter((d) => d.is_online).length;
 
   return (
@@ -75,9 +165,18 @@ export default function DevicesPage() {
           <h1 className="admin-page-title">{t.devicesTitle}</h1>
           <p className="admin-page-subtitle">{t.devicesSubtitle}</p>
         </div>
-        <button className="admin-btn-ghost" onClick={loadDevices}>
-          ⟳ {t.refresh}
-        </button>
+        <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+          <span
+            className={`admin-badge ${
+              realtimeStatus === "live" ? "admin-badge-green" : "admin-badge-yellow"
+            }`}
+          >
+            ● {t.realtimeStatus}: {realtimeLabel}
+          </span>
+          <button className="admin-btn-ghost" onClick={loadDevices}>
+            ⟳ {t.refresh}
+          </button>
+        </div>
       </div>
 
       {error && <div className="admin-alert-error">{error}</div>}

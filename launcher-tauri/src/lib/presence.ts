@@ -1,4 +1,5 @@
 import { tauriCommands } from "./tauri";
+import apiClient from "./api";
 
 // Tracks launcher-controlled apps currently running on this machine, keyed by
 // app id -> OS process id (PID). Persisted to localStorage so a launcher reload
@@ -69,4 +70,17 @@ export async function getActiveRunningApps(): Promise<RunningAppEntry[]> {
 /** Clear all tracked apps (e.g. on logout). */
 export function clearRunningApps(): void {
   save([]);
+}
+
+/**
+ * Push an immediate heartbeat using current running apps. Use this when app
+ * launch/close events happen so admin presence updates do not wait for the
+ * periodic heartbeat tick.
+ */
+export async function syncPresenceNow(): Promise<void> {
+  const deviceId = localStorage.getItem("deviceId");
+  if (!deviceId) return;
+  const sysInfo = await tauriCommands.getSystemInfo();
+  const activeApps = await getActiveRunningApps();
+  await apiClient.deviceHeartbeat(deviceId, sysInfo.ip_address, activeApps);
 }

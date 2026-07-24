@@ -1,4 +1,4 @@
-import { useState, useEffect, type ReactNode } from "react";
+import { useState, useEffect, useRef, type ReactNode } from "react";
 import { useAuth } from "../context/AuthContext";
 import { useTheme } from "../context/ThemeContext";
 import { useLocale } from "../context/LocaleContext";
@@ -26,6 +26,15 @@ export default function Layout() {
   const { locale, setLocale, t } = useLocale();
   const [currentPage, setCurrentPage] = useState<Page>("store");
   const [downloads, setDownloads] = useState<DownloadProgress[]>([]);
+  const lastPresenceKeyRef = useRef<string>("");
+  const closingRef = useRef(false);
+
+  const buildPresenceKey = (apps: { app_id: string; pid: number }[]) =>
+    apps
+      .slice()
+      .sort((a, b) => a.app_id.localeCompare(b.app_id))
+      .map((a) => `${a.app_id}:${a.pid}`)
+      .join("|");
 
   useEffect(() => {
     const unsub = downloadManager.subscribe(setDownloads);
@@ -38,10 +47,11 @@ export default function Layout() {
     const deviceId = localStorage.getItem("deviceId");
     if (!deviceId) return;
 
-    const sendHeartbeat = async () => {
+    const sendHeartbeat = async (activeAppsOverride?: { app_id: string; pid: number }[]) => {
       try {
         const sysInfo = await tauriCommands.getSystemInfo();
-        const activeApps = await getActiveRunningApps();
+        const activeApps = activeAppsOverride ?? (await getActiveRunningApps());
+        lastPresenceKeyRef.current = buildPresenceKey(activeApps);
         await apiClient.deviceHeartbeat(deviceId, sysInfo.ip_address, activeApps);
       } catch (err) {
         console.error("Heartbeat failed:", err);
@@ -50,7 +60,59 @@ export default function Layout() {
 
     sendHeartbeat();
     const interval = setInterval(sendHeartbeat, 45 * 1000);
-    return () => clearInterval(interval);
+
+    // Fast watcher for child process exits: if running-app set changes, push
+    // heartbeat immediately instead of waiting up to 45 seconds.
+    const appWatcher = setInterval(async () => {
+      try {
+        const activeApps = await getActiveRunningApps();
+        const nextKey = buildPresenceKey(activeApps);
+        if (nextKey !== lastPresenceKeyRef.current) {
+          await sendHeartbeat(activeApps);
+        }
+      } catch {
+        // Ignore watcher errors; periodic heartbeat is still active.
+      }
+    }, 5000);
+
+    return () => {
+      clearInterval(interval);
+      clearInterval(appWatcher);
+    };
+  }, []);
+
+  useEffect(() => {
+    let unlisten: (() => void) | undefined;
+
+    // Best-effort logout on window close so admin sees offline faster.
+    (async () => {
+      try {
+        const { getCurrentWindow } = await import("@tauri-apps/api/window");
+        const win = getCurrentWindow();
+        unlisten = await win.onCloseRequested(async (event) => {
+          if (closingRef.current) return;
+          closingRef.current = true;
+          event.preventDefault();
+          const deviceId = localStorage.getItem("deviceId");
+          if (!deviceId) {
+            await win.close();
+            return;
+          }
+          try {
+            await apiClient.deviceLogout(deviceId);
+          } catch {
+            // ignore close logout failures; timeout fallback still works
+          }
+          await win.close();
+        });
+      } catch {
+        // Non-tauri environments or API mismatch: skip close hook.
+      }
+    })();
+
+    return () => {
+      if (unlisten) unlisten();
+    };
   }, []);
 
   const handleStartDownload = (app: App, version: AppVersion) => {

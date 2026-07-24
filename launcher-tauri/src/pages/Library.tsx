@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from "react";
 import apiClient from "../lib/api";
 import type { App, AppVersion, UserApp } from "../lib/api";
 import { tauriCommands } from "../lib/tauri";
-import { trackRunningApp } from "../lib/presence";
+import { syncPresenceNow, trackRunningApp } from "../lib/presence";
 import type { DownloadProgress, Manifest } from "../lib/downloadManager";
 import { isDownloadInProgress } from "../lib/downloadManager";
 import { useLocale } from "../context/LocaleContext";
@@ -300,6 +300,9 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
         }
         const pid = await tauriCommands.launchApp(launchPath);
         trackRunningApp(appId, pid);
+        void syncPresenceNow().catch(() => {
+          // Presence sync is best-effort; do not mark launch as failed.
+        });
         setMessage(`${t.launching} ${appName}...`);
         return;
       }
@@ -373,6 +376,9 @@ export default function Library({ downloads, onStartDownload }: LibraryProps) {
 
       const pid = await tauriCommands.launchApp(resolvedExePath);
       trackRunningApp(appId, pid);
+      void syncPresenceNow().catch(() => {
+        // Presence sync is best-effort; do not mark launch as failed.
+      });
       setMessage(`Launching ${appName}...`);
     } catch (err: unknown) {
       setMessage(err instanceof Error ? err.message : t.failedLaunch);

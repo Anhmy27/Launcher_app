@@ -136,4 +136,9 @@ export const vi = {
   startedAt: "Bắt đầu",
   never: "Chưa bao giờ",
   pid: "PID",
+  realtimeStatus: "Realtime",
+  realtimeLive: "Đang live",
+  realtimeConnecting: "Đang kết nối",
+  realtimeReconnecting: "Đang kết nối lại",
+  realtimeOffline: "Ngoại tuyến",
 } as const;
