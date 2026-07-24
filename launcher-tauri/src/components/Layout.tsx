@@ -94,14 +94,16 @@ export default function Layout() {
           closingRef.current = true;
           event.preventDefault();
           const deviceId = localStorage.getItem("deviceId");
-          if (!deviceId) {
-            await win.close();
-            return;
-          }
-          try {
-            await apiClient.deviceLogout(deviceId);
-          } catch {
-            // ignore close logout failures; timeout fallback still works
+          if (deviceId) {
+            try {
+              // Don't block close forever if network hangs.
+              await Promise.race([
+                apiClient.deviceLogout(deviceId),
+                new Promise((resolve) => setTimeout(resolve, 1500)),
+              ]);
+            } catch {
+              // ignore close logout failures; timeout fallback still works
+            }
           }
           await win.close();
         });

@@ -73,18 +73,32 @@ export default function DevicesPage() {
         return;
       }
 
-      setRealtimeStatus(isReconnect ? "reconnecting" : "connecting");
-      ws = new WebSocket(wsUrl, protocols);
+      if (reconnectTimerRef.current) {
+        window.clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
 
-      ws.onopen = () => {
-        if (isUnmounted) {
-          ws?.close();
+      if (ws) {
+        const old = ws;
+        ws = null;
+        old.onclose = null;
+        old.close();
+      }
+
+      setRealtimeStatus(isReconnect ? "reconnecting" : "connecting");
+      const next = new WebSocket(wsUrl, protocols);
+      ws = next;
+
+      next.onopen = () => {
+        if (isUnmounted || ws !== next) {
+          next.close();
           return;
         }
         setRealtimeStatus("live");
       };
 
-      ws.onmessage = (event) => {
+      next.onmessage = (event) => {
+        if (ws !== next) return;
         try {
           const message = JSON.parse(event.data) as PresenceEvent;
           if (message?.type === "devices.snapshot" && Array.isArray(message.data)) {
@@ -95,8 +109,8 @@ export default function DevicesPage() {
         }
       };
 
-      ws.onclose = () => {
-        if (isUnmounted) return;
+      next.onclose = () => {
+        if (isUnmounted || ws !== next) return;
         setRealtimeStatus("reconnecting");
         reconnectTimerRef.current = window.setTimeout(() => {
           connect(true);
@@ -113,7 +127,11 @@ export default function DevicesPage() {
         window.clearTimeout(reconnectTimerRef.current);
         reconnectTimerRef.current = null;
       }
-      ws?.close();
+      if (ws) {
+        ws.onclose = null;
+        ws.close();
+        ws = null;
+      }
     };
   }, []);
 

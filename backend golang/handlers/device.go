@@ -99,11 +99,6 @@ func (h *DeviceHandler) SubscribeDevicesWS(c *gin.Context) {
 	if len(protocols) >= 2 && protocols[0] == "launcher-admin-v1" {
 		token = protocols[1]
 	}
-	// Backward-compatible fallback while old frontend caches may still connect
-	// with token in query.
-	if token == "" {
-		token = c.Query("token")
-	}
 	if token == "" {
 		utils.Error(c, http.StatusUnauthorized, "Missing websocket token")
 		return
